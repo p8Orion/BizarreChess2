@@ -1,0 +1,21 @@
+{
+    "name": "BizarreChess",
+    "rootNamespace": "BizarreChess",
+    "references": [
+        "Unity.Netcode.Runtime",
+        "Unity.TextMeshPro",
+        "Unity.Collections",
+        "Unity.Networking.Transport",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
+
