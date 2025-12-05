@@ -1,0 +1,317 @@
+using System.Collections.Generic;
+using UnityEngine;
+using BizarreChess.Core.Graph;
+
+namespace BizarreChess.Core.Factories
+{
+    /// <summary>
+    /// Factory for creating board definitions.
+    /// Supports classic 8x8 boards and custom configurations.
+    /// </summary>
+    public static class BoardFactory
+    {
+        #region Classic Board
+
+        /// <summary>
+        /// Create a standard 8x8 chess board definition.
+        /// </summary>
+        public static BoardDefinition CreateClassicBoard()
+        {
+            return CreateRectangularBoard(8, 8, "classic_8x8", "Classic Chess Board");
+        }
+
+        #endregion
+
+        #region Rectangular Boards
+
+        /// <summary>
+        /// Create a rectangular board with standard chess connectivity.
+        /// </summary>
+        public static BoardDefinition CreateRectangularBoard(
+            int width,
+            int height,
+            string boardId = null,
+            string displayName = null)
+        {
+            var board = ScriptableObject.CreateInstance<BoardDefinition>();
+            board.BoardId = boardId ?? $"board_{width}x{height}";
+            board.DisplayName = displayName ?? $"{width}x{height} Board";
+            board.Width = width;
+            board.Height = height;
+            board.PlacementMode = PlacementMode.Automatic;
+            board.Nodes = new List<NodeDefinition>();
+            board.Edges = new List<EdgeDefinition>();
+            board.SpawnZones = new List<SpawnZone>();
+
+            // Create nodes
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int id = y * width + x;
+                    bool isLight = (x + y) % 2 == 1;
+
+                    board.Nodes.Add(new NodeDefinition(
+                        id: id,
+                        position: new Vector2(x, y),
+                        type: NodeType.Normal,
+                        isLight: isLight
+                    ));
+                }
+            }
+
+            // Create edges (8-way connectivity)
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int id = y * width + x;
+
+                    // Connect to right neighbor
+                    if (x < width - 1)
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, id + 1));
+                    }
+
+                    // Connect to top neighbor
+                    if (y < height - 1)
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, id + width));
+                    }
+
+                    // Connect to top-right diagonal
+                    if (x < width - 1 && y < height - 1)
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, id + width + 1));
+                    }
+
+                    // Connect to top-left diagonal
+                    if (x > 0 && y < height - 1)
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, id + width - 1));
+                    }
+                }
+            }
+
+            // Create standard spawn zones (bottom rows for P1, top rows for P2)
+            AddStandardSpawnZones(board);
+
+            return board;
+        }
+
+        /// <summary>
+        /// Add standard spawn zones for a 2-player board.
+        /// Player 1 gets bottom 2 rows, Player 2 gets top 2 rows.
+        /// </summary>
+        private static void AddStandardSpawnZones(BoardDefinition board)
+        {
+            int width = board.Width;
+            int height = board.Height;
+
+            // Player 1: rows 0-1 (bottom)
+            var player1BackRow = new List<int>();
+            var player1FrontRow = new List<int>();
+            for (int x = 0; x < width; x++)
+            {
+                player1BackRow.Add(x);              // row 0
+                player1FrontRow.Add(width + x);     // row 1
+            }
+
+            // Player 2: rows (height-2) and (height-1) (top)
+            var player2FrontRow = new List<int>();
+            var player2BackRow = new List<int>();
+            for (int x = 0; x < width; x++)
+            {
+                player2FrontRow.Add((height - 2) * width + x);  // second to last row
+                player2BackRow.Add((height - 1) * width + x);   // last row
+            }
+
+            board.SpawnZones.Add(new SpawnZone(0, player1BackRow, player1FrontRow));
+            board.SpawnZones.Add(new SpawnZone(1, player2BackRow, player2FrontRow));
+        }
+
+        #endregion
+
+        #region Custom Board Building
+
+        /// <summary>
+        /// Create an empty board definition to build upon.
+        /// </summary>
+        public static BoardDefinition CreateEmptyBoard(
+            string boardId,
+            string displayName,
+            int width = 8,
+            int height = 8)
+        {
+            var board = ScriptableObject.CreateInstance<BoardDefinition>();
+            board.BoardId = boardId;
+            board.DisplayName = displayName;
+            board.Width = width;
+            board.Height = height;
+            board.PlacementMode = PlacementMode.Automatic;
+            board.Nodes = new List<NodeDefinition>();
+            board.Edges = new List<EdgeDefinition>();
+            board.SpawnZones = new List<SpawnZone>();
+            return board;
+        }
+
+        /// <summary>
+        /// Add a node to a board.
+        /// </summary>
+        public static void AddNode(
+            BoardDefinition board,
+            int id,
+            Vector2 position,
+            NodeType type = NodeType.Normal,
+            bool isLight = true)
+        {
+            board.Nodes.Add(new NodeDefinition(id, position, type, isLight));
+        }
+
+        /// <summary>
+        /// Add an edge between two nodes.
+        /// </summary>
+        public static void AddEdge(
+            BoardDefinition board,
+            int fromId,
+            int toId,
+            bool bidirectional = true,
+            EdgeType type = EdgeType.Normal)
+        {
+            board.Edges.Add(new EdgeDefinition(fromId, toId, bidirectional, type));
+        }
+
+        /// <summary>
+        /// Add a spawn zone to a board.
+        /// </summary>
+        public static void AddSpawnZone(
+            BoardDefinition board,
+            int playerSlot,
+            List<int> backRow,
+            List<int> frontRow)
+        {
+            board.SpawnZones.Add(new SpawnZone(playerSlot, backRow, frontRow));
+        }
+
+        #endregion
+
+        #region Variant Boards
+
+        /// <summary>
+        /// Create a 6x6 mini chess board.
+        /// </summary>
+        public static BoardDefinition CreateMiniBoard()
+        {
+            return CreateRectangularBoard(6, 6, "mini_6x6", "Mini Chess Board");
+        }
+
+        /// <summary>
+        /// Create a 10x10 grand chess board.
+        /// </summary>
+        public static BoardDefinition CreateGrandBoard()
+        {
+            return CreateRectangularBoard(10, 10, "grand_10x10", "Grand Chess Board");
+        }
+
+        /// <summary>
+        /// Create an 8x10 Capablanca chess board.
+        /// </summary>
+        public static BoardDefinition CreateCapablancaBoard()
+        {
+            return CreateRectangularBoard(10, 8, "capablanca_10x8", "Capablanca Chess Board");
+        }
+
+        /// <summary>
+        /// Create a board with some nodes removed (irregular shape).
+        /// </summary>
+        public static BoardDefinition CreateBoardWithHoles(
+            int width,
+            int height,
+            List<Vector2Int> holes,
+            string boardId = null,
+            string displayName = null)
+        {
+            var board = CreateEmptyBoard(
+                boardId ?? $"holes_{width}x{height}",
+                displayName ?? $"{width}x{height} Board with Holes",
+                width,
+                height
+            );
+
+            var holeSet = new HashSet<Vector2Int>(holes);
+
+            // Create nodes (skip holes)
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    if (holeSet.Contains(new Vector2Int(x, y)))
+                        continue;
+
+                    int id = y * width + x;
+                    bool isLight = (x + y) % 2 == 1;
+
+                    board.Nodes.Add(new NodeDefinition(
+                        id: id,
+                        position: new Vector2(x, y),
+                        type: NodeType.Normal,
+                        isLight: isLight
+                    ));
+                }
+            }
+
+            // Create edges (only between existing nodes)
+            var nodeIds = new HashSet<int>();
+            foreach (var node in board.Nodes)
+            {
+                nodeIds.Add(node.Id);
+            }
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int id = y * width + x;
+                    if (!nodeIds.Contains(id))
+                        continue;
+
+                    // Connect to right neighbor
+                    int rightId = id + 1;
+                    if (x < width - 1 && nodeIds.Contains(rightId))
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, rightId));
+                    }
+
+                    // Connect to top neighbor
+                    int topId = id + width;
+                    if (y < height - 1 && nodeIds.Contains(topId))
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, topId));
+                    }
+
+                    // Connect to top-right diagonal
+                    int topRightId = id + width + 1;
+                    if (x < width - 1 && y < height - 1 && nodeIds.Contains(topRightId))
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, topRightId));
+                    }
+
+                    // Connect to top-left diagonal
+                    int topLeftId = id + width - 1;
+                    if (x > 0 && y < height - 1 && nodeIds.Contains(topLeftId))
+                    {
+                        board.Edges.Add(new EdgeDefinition(id, topLeftId));
+                    }
+                }
+            }
+
+            // Add standard spawn zones (caller should customize if holes affect spawn areas)
+            AddStandardSpawnZones(board);
+
+            return board;
+        }
+
+        #endregion
+    }
+}
+

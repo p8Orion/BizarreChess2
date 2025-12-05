@@ -25,10 +25,10 @@ namespace BizarreChess.Networking
         public NetworkVariable<int> WinnerId = new NetworkVariable<int>(-1);
 
         // Local state (server builds this, clients receive via RPCs)
+        private ChessSetup _chessSetup;
         private GameState _gameState;
         private BoardGraph _boardGraph;
         private MoveValidator _moveValidator;
-        private Dictionary<string, UnitDefinition> _unitDefinitions;
 
         // Events
         public System.Action<int, int, int> OnUnitMoved; // unitId, fromNode, toNode
@@ -46,8 +46,8 @@ namespace BizarreChess.Networking
         {
             base.OnNetworkSpawn();
 
-            // Initialize unit definitions
-            _unitDefinitions = ClassicChessFactory.CreateAllUnitDefinitions();
+            // Initialize chess setup (board, pieces, army)
+            _chessSetup = ChessFactory.CreateSetup(board: _boardDefinition);
 
             // Subscribe to network variable changes (clients)
             CurrentTurn.OnValueChanged += (old, newVal) => OnTurnChanged?.Invoke();
@@ -106,14 +106,8 @@ namespace BizarreChess.Networking
 
         private void InitializeBoard()
         {
-            if (_boardDefinition == null)
-            {
-                // Use classic board as default
-                _boardDefinition = ClassicChessFactory.CreateClassicBoard();
-            }
-
-            _boardGraph = new BoardGraph(_boardDefinition);
-            _moveValidator = new MoveValidator(_boardGraph, _unitDefinitions);
+            _boardGraph = new BoardGraph(_chessSetup.Board);
+            _moveValidator = new MoveValidator(_boardGraph, _chessSetup.Pieces);
         }
 
         #endregion
@@ -166,17 +160,15 @@ namespace BizarreChess.Networking
         {
             if (!IsServer) return;
 
-            // Create armies for both players
-            var classicArmy = ClassicChessFactory.CreateClassicArmy(_unitDefinitions);
-
+            // Create player setups with their armies
             var playerSetups = new List<PlayerSetup>
             {
-                new PlayerSetup { DisplayName = "Player 1", Army = classicArmy },
-                new PlayerSetup { DisplayName = "Player 2", Army = classicArmy }
+                new PlayerSetup { DisplayName = "Player 1", Army = _chessSetup.GetArmy(0) },
+                new PlayerSetup { DisplayName = "Player 2", Army = _chessSetup.GetArmy(1) }
             };
 
             _gameState = new GameState();
-            _gameState.Initialize(_boardDefinition, playerSetups);
+            _gameState.Initialize(_chessSetup.Board, playerSetups);
 
             // Update network variables
             Phase.Value = GamePhaseNetwork.Playing;
@@ -195,18 +187,16 @@ namespace BizarreChess.Networking
             // Initialize local game state for clients too
             if (!IsServer)
             {
-                var classicArmy = ClassicChessFactory.CreateClassicArmy(_unitDefinitions);
                 var playerSetups = new List<PlayerSetup>
                 {
-                    new PlayerSetup { DisplayName = "Player 1", Army = classicArmy },
-                    new PlayerSetup { DisplayName = "Player 2", Army = classicArmy }
+                    new PlayerSetup { DisplayName = "Player 1", Army = _chessSetup.GetArmy(0) },
+                    new PlayerSetup { DisplayName = "Player 2", Army = _chessSetup.GetArmy(1) }
                 };
                 
                 _gameState = new GameState();
-                _gameState.Initialize(_boardDefinition ?? ClassicChessFactory.CreateClassicBoard(), playerSetups);
-                _boardGraph = new BoardGraph(_gameState.BoardState != null ? 
-                    ClassicChessFactory.CreateClassicBoard() : _boardDefinition ?? ClassicChessFactory.CreateClassicBoard());
-                _moveValidator = new MoveValidator(_boardGraph, _unitDefinitions);
+                _gameState.Initialize(_chessSetup.Board, playerSetups);
+                _boardGraph = new BoardGraph(_chessSetup.Board);
+                _moveValidator = new MoveValidator(_boardGraph, _chessSetup.Pieces);
             }
             
             OnGameStarted?.Invoke();
@@ -417,7 +407,7 @@ namespace BizarreChess.Networking
             if (unit == null)
                 return new List<int>();
 
-            if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
+            if (!_chessSetup.Pieces.TryGetValue(unit.DefinitionId, out var definition))
                 return new List<int>();
 
             return _moveValidator.GetValidMovesForUnit(unit, definition, _gameState.Units);
@@ -445,6 +435,14 @@ namespace BizarreChess.Networking
         public BoardGraph GetBoardGraph()
         {
             return _boardGraph;
+        }
+
+        /// <summary>
+        /// Get piece definitions.
+        /// </summary>
+        public Dictionary<string, UnitDefinition> GetPieces()
+        {
+            return _chessSetup?.Pieces;
         }
 
         #endregion

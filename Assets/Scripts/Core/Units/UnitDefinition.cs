@@ -50,7 +50,7 @@ namespace BizarreChess.Core.Units
         /// - Other colors = static (not replaced)
         /// </summary>
         public Texture2D DisplacementTexture;
-        public float PieceHeight = 1f;        // Height for displacement mode
+        public float PieceHeight = 1.5f;        // Height for displacement mode
 
         [Header("Abilities (Future)")]
         public List<AbilityUnlock> Abilities;

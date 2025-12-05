@@ -1,101 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
 using BizarreChess.Core.Units;
-using BizarreChess.Core.Armies;
 
 namespace BizarreChess.Core.Factories
 {
     /// <summary>
-    /// Factory for creating classic 8x8 chess board and army.
+    /// Factory for creating classic chess piece definitions.
+    /// These pieces can be used across different board types and game modes.
     /// </summary>
-    public static class ClassicChessFactory
+    public static class PiecesFactory
     {
-        #region Board Creation
-
-        /// <summary>
-        /// Create a standard 8x8 chess board definition.
-        /// </summary>
-        public static BoardDefinition CreateClassicBoard()
-        {
-            var board = ScriptableObject.CreateInstance<BoardDefinition>();
-            board.BoardId = "classic_8x8";
-            board.DisplayName = "Classic Chess Board";
-            board.Width = 8;
-            board.Height = 8;
-            board.PlacementMode = PlacementMode.Automatic;
-            board.Nodes = new List<NodeDefinition>();
-            board.Edges = new List<EdgeDefinition>();
-            board.SpawnZones = new List<SpawnZone>();
-
-            // Create 64 nodes
-            for (int y = 0; y < 8; y++)
-            {
-                for (int x = 0; x < 8; x++)
-                {
-                    int id = y * 8 + x;
-                    bool isLight = (x + y) % 2 == 1;
-
-                    board.Nodes.Add(new NodeDefinition(
-                        id: id,
-                        position: new Vector2(x, y),
-                        type: NodeType.Normal,
-                        isLight: isLight
-                    ));
-                }
-            }
-
-            // Create edges (8-way connectivity for king movement, other pieces use patterns)
-            for (int y = 0; y < 8; y++)
-            {
-                for (int x = 0; x < 8; x++)
-                {
-                    int id = y * 8 + x;
-
-                    // Connect to right neighbor
-                    if (x < 7)
-                    {
-                        board.Edges.Add(new EdgeDefinition(id, id + 1));
-                    }
-
-                    // Connect to top neighbor
-                    if (y < 7)
-                    {
-                        board.Edges.Add(new EdgeDefinition(id, id + 8));
-                    }
-
-                    // Connect to top-right diagonal
-                    if (x < 7 && y < 7)
-                    {
-                        board.Edges.Add(new EdgeDefinition(id, id + 9));
-                    }
-
-                    // Connect to top-left diagonal
-                    if (x > 0 && y < 7)
-                    {
-                        board.Edges.Add(new EdgeDefinition(id, id + 7));
-                    }
-                }
-            }
-
-            // Create spawn zones
-            // Player 1: rows 0-1 (nodes 0-15)
-            var player1BackRow = new List<int> { 0, 1, 2, 3, 4, 5, 6, 7 };
-            var player1FrontRow = new List<int> { 8, 9, 10, 11, 12, 13, 14, 15 };
-
-            // Player 2: rows 6-7 (nodes 48-63)
-            var player2FrontRow = new List<int> { 48, 49, 50, 51, 52, 53, 54, 55 };
-            var player2BackRow = new List<int> { 56, 57, 58, 59, 60, 61, 62, 63 };
-
-            board.SpawnZones.Add(new SpawnZone(0, player1BackRow, player1FrontRow));
-            board.SpawnZones.Add(new SpawnZone(1, player2BackRow, player2FrontRow));
-
-            return board;
-        }
-
-        #endregion
-
-        #region Unit Definitions
+        #region Individual Piece Definitions
 
         public static UnitDefinition CreateKingDefinition()
         {
@@ -128,7 +43,8 @@ namespace BizarreChess.Core.Factories
             king.UnicodeBlack = ChessUnicode.BlackKing;
 
             // 3D Rendering
-            ApplyPieceTextures(king, "King", 1.25f);
+            ApplyPieceTextures(king, "King");
+            king.PieceHeight = 2f;
 
             return king;
         }
@@ -169,7 +85,8 @@ namespace BizarreChess.Core.Factories
             queen.UnicodeBlack = ChessUnicode.BlackQueen;
 
             // 3D Rendering
-            ApplyPieceTextures(queen, "Queen", 1.1f);
+            ApplyPieceTextures(queen, "Queen");
+            queen.PieceHeight = 2f;
 
             return queen;
         }
@@ -204,7 +121,7 @@ namespace BizarreChess.Core.Factories
             rook.UnicodeBlack = ChessUnicode.BlackRook;
 
             // 3D Rendering
-            ApplyPieceTextures(rook, "Rook", 0.9f);
+            ApplyPieceTextures(rook, "Rook");
 
             return rook;
         }
@@ -238,7 +155,7 @@ namespace BizarreChess.Core.Factories
             bishop.UnicodeBlack = ChessUnicode.BlackBishop;
 
             // 3D Rendering
-            ApplyPieceTextures(bishop, "Bishop", 1.0f);
+            ApplyPieceTextures(bishop, "Bishop");
 
             return bishop;
         }
@@ -272,7 +189,7 @@ namespace BizarreChess.Core.Factories
             knight.UnicodeBlack = ChessUnicode.BlackKnight;
 
             // 3D Rendering
-            ApplyPieceTextures(knight, "Knight", 1.0f);
+            ApplyPieceTextures(knight, "Knight");
 
             return knight;
         }
@@ -317,16 +234,20 @@ namespace BizarreChess.Core.Factories
             pawn.UnicodeBlack = ChessUnicode.BlackPawn;
 
             // 3D Rendering
-            ApplyPieceTextures(pawn, "Pawn", 0.8f);
+            ApplyPieceTextures(pawn, "Pawn");
 
             return pawn;
         }
+
+        #endregion
+
+        #region Texture Loading
 
         /// <summary>
         /// Apply piece textures from Resources folder.
         /// Tries to load from Pieces/Displacement first, falls back to Pieces/Tokens, then Token2D with no texture.
         /// </summary>
-        private static void ApplyPieceTextures(UnitDefinition unit, string pieceName, float height)
+        private static void ApplyPieceTextures(UnitDefinition unit, string pieceName)
         {
             // Try displacement texture first (3D from PNG)
             var displacementTex = Resources.Load<Texture2D>($"Pieces/Displacement/{pieceName}");
@@ -334,7 +255,6 @@ namespace BizarreChess.Core.Factories
             {
                 unit.RenderMode = PieceRenderMode.DisplacementMap;
                 unit.DisplacementTexture = displacementTex;
-                unit.PieceHeight = height;
                 return;
             }
 
@@ -344,20 +264,22 @@ namespace BizarreChess.Core.Factories
             {
                 unit.RenderMode = PieceRenderMode.Token2D;
                 unit.TokenTexture = tokenTex;
-                unit.PieceHeight = height;
                 return;
             }
 
             // Fallback: Token2D with no texture (solid color cylinder)
             unit.RenderMode = PieceRenderMode.Token2D;
             unit.TokenTexture = null;
-            unit.PieceHeight = height;
         }
 
+        #endregion
+
+        #region Convenience Methods
+
         /// <summary>
-        /// Get all classic unit definitions.
+        /// Get all classic chess piece definitions.
         /// </summary>
-        public static Dictionary<string, UnitDefinition> CreateAllUnitDefinitions()
+        public static Dictionary<string, UnitDefinition> CreateAllPieceDefinitions()
         {
             return new Dictionary<string, UnitDefinition>
             {
@@ -370,73 +292,24 @@ namespace BizarreChess.Core.Factories
             };
         }
 
-        #endregion
-
-        #region Army Creation
-
         /// <summary>
-        /// Create the classic chess army (16 pieces in standard positions).
+        /// Get a specific piece definition by name.
         /// </summary>
-        public static ArmyDefinition CreateClassicArmy(Dictionary<string, UnitDefinition> units)
+        public static UnitDefinition CreatePieceDefinition(string pieceName)
         {
-            var army = ScriptableObject.CreateInstance<ArmyDefinition>();
-            army.ArmyId = "classic_chess_army";
-            army.DisplayName = "Classic Chess Army";
-            army.Description = "Standard chess army with 16 pieces";
-            army.RequiresKing = true;
-            army.Slots = new List<ArmySlot>();
-
-            // Back row (y=0): Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook
-            army.Slots.Add(new ArmySlot(units["Rook"], 0, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Knight"], 1, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Bishop"], 2, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Queen"], 3, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["King"], 4, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Bishop"], 5, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Knight"], 6, 0, SlotRow.Back));
-            army.Slots.Add(new ArmySlot(units["Rook"], 7, 0, SlotRow.Back));
-
-            // Front row (y=1): 8 pawns
-            for (int x = 0; x < 8; x++)
+            return pieceName switch
             {
-                army.Slots.Add(new ArmySlot(units["Pawn"], x, 1, SlotRow.Front));
-            }
-
-            return army;
-        }
-
-        #endregion
-
-        #region Convenience Methods
-
-        /// <summary>
-        /// Create everything needed for a classic chess game.
-        /// </summary>
-        public static ClassicChessSetup CreateCompleteSetup()
-        {
-            var units = CreateAllUnitDefinitions();
-            var board = CreateClassicBoard();
-            var army = CreateClassicArmy(units);
-
-            return new ClassicChessSetup
-            {
-                Board = board,
-                UnitDefinitions = units,
-                DefaultArmy = army
+                "King" => CreateKingDefinition(),
+                "Queen" => CreateQueenDefinition(),
+                "Rook" => CreateRookDefinition(),
+                "Bishop" => CreateBishopDefinition(),
+                "Knight" => CreateKnightDefinition(),
+                "Pawn" => CreatePawnDefinition(),
+                _ => null
             };
         }
 
         #endregion
-    }
-
-    /// <summary>
-    /// Container for all classic chess assets.
-    /// </summary>
-    public class ClassicChessSetup
-    {
-        public BoardDefinition Board;
-        public Dictionary<string, UnitDefinition> UnitDefinitions;
-        public ArmyDefinition DefaultArmy;
     }
 }
 

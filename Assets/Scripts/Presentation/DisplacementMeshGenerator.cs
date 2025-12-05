@@ -15,7 +15,7 @@ namespace BizarreChess.Presentation
     {
         private const int HEIGHT_SEGMENTS = 32; // Vertical resolution
         private const float MAX_RADIUS = 0.4f;
-        private const float MIN_RADIUS = 0.05f; // Minimum radius to avoid collapsed center
+        private const float MIN_RADIUS = 0f; // Allow zero radius for fully transparent areas
 
         // Color detection thresholds
         private const float GREEN_THRESHOLD = 0.8f;
@@ -27,7 +27,7 @@ namespace BizarreChess.Presentation
         /// <param name="texture">Displacement texture</param>
         /// <param name="height">Total height of the piece</param>
         /// <returns>Generated mesh</returns>
-        public static Mesh GenerateDisplacementMesh(Texture2D texture, float height = 1f)
+        public static Mesh GenerateDisplacementMesh(Texture2D texture, float height)
         {
             if (texture == null)
             {
@@ -199,7 +199,7 @@ namespace BizarreChess.Presentation
         /// <summary>
         /// Creates a complete GameObject with displacement mesh and color shader.
         /// </summary>
-        public static GameObject CreateDisplacementObject(Texture2D texture, bool isWhite, float height = 1f)
+        public static GameObject CreateDisplacementObject(Texture2D texture, bool isWhite, float height = 3f)
         {
             var go = new GameObject("DisplacementPiece");
 

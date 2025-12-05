@@ -141,9 +141,6 @@ namespace BizarreChess
                 Debug.Log($"[GameManager] Authenticated as {authResult.PlayerId}");
             }
 
-            // Initialize unit definitions
-            _unitDefinitions = ClassicChessFactory.CreateAllUnitDefinitions();
-
             if (_offlineMode)
             {
                 StartOfflineGame();
@@ -169,8 +166,8 @@ namespace BizarreChess
             Debug.Log("[GameManager] Starting offline game...");
             
             // Create classic setup
-            var setup = ClassicChessFactory.CreateCompleteSetup();
-            _unitDefinitions = setup.UnitDefinitions;
+            var setup = ChessFactory.CreateDefaultSetup();
+            _unitDefinitions = setup.Pieces;
             Debug.Log($"[GameManager] Created {_unitDefinitions.Count} unit definitions");
 
             // Initialize board
@@ -182,8 +179,8 @@ namespace BizarreChess
             _gameState = new GameState();
             var playerSetups = new List<PlayerSetup>
             {
-                new PlayerSetup { DisplayName = "Player 1", Army = setup.DefaultArmy },
-                new PlayerSetup { DisplayName = "Player 2", Army = setup.DefaultArmy }
+                new PlayerSetup { DisplayName = "Player 1", Army = setup.GetArmy(0) },
+                new PlayerSetup { DisplayName = "Player 2", Army = setup.GetArmy(1) }
             };
             _gameState.Initialize(setup.Board, playerSetups);
             Debug.Log($"[GameManager] Game state has {_gameState.Units.Count} units");
@@ -335,7 +332,7 @@ namespace BizarreChess
             
             // Get game data from NetworkedGameState
             _boardGraph = _networkedGameState.GetBoardGraph();
-            _unitDefinitions = ClassicChessFactory.CreateAllUnitDefinitions();
+            _unitDefinitions = _networkedGameState.GetPieces();
             
             // Initialize validator
             if (_boardGraph != null)

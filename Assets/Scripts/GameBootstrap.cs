@@ -189,9 +189,9 @@ namespace BizarreChess
         /// <summary>
         /// Creates all required ScriptableObject data assets at runtime.
         /// </summary>
-        public static ClassicChessSetup CreateGameData()
+        public static ChessSetup CreateGameData()
         {
-            return ClassicChessFactory.CreateCompleteSetup();
+            return ChessFactory.CreateDefaultSetup();
         }
     }
 }
