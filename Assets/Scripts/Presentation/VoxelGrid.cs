@@ -121,8 +121,9 @@ namespace BizarreChess.Presentation
                         Color pixel = profile.GetPixel(texXInt, texYInt);
                         bool isSolid = pixel.a >= alphaThreshold;
                         
-                        // Use alpha directly as density for smooth marching cubes interpolation
-                        _density[x, y, z] = pixel.a;
+                        // Density: 1.0 for solid voxels, 0.0 for empty
+                        // Marching cubes isosurface at 0.5 will be at the boundary
+                        _density[x, y, z] = isSolid ? 1.0f : 0.0f;
                         _data[x, y, z] = isSolid;
                     }
                 }
