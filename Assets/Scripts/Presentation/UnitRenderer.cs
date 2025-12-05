@@ -171,8 +171,9 @@ namespace BizarreChess.Presentation
             }
 
             // Visual feedback - scale up slightly when selected
-            // Token2D has no scale applied, DisplacementMap has 0.8 scale from generator
-            float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
+            // Token2D has no scale applied, DisplacementMap and RevolutionVolume have 0.8 scale from generator
+            float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
+                               _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
             transform.localScale = Vector3.one * baseScale * (selected ? 1.15f : 1f);
             
             // Add emission glow when selected (works for both render modes)
@@ -346,7 +347,8 @@ namespace BizarreChess.Presentation
             // Smoothly scale up during drag
             _currentLiftProgress = Mathf.MoveTowards(_currentLiftProgress, 1f, Time.deltaTime * _dragLiftSpeed);
             
-            float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
+            float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
+                               _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
             float targetScale = baseScale * _dragScale;
             float currentScale = Mathf.Lerp(baseScale, targetScale, _currentLiftProgress);
             transform.localScale = Vector3.one * currentScale;
@@ -369,7 +371,8 @@ namespace BizarreChess.Presentation
                 transform.position = Vector3.Lerp(_startPosition, _targetPosition, t);
                 
                 // Also restore scale
-                float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
+                float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
+                                   _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
                 float currentScale = Mathf.Lerp(baseScale * _dragScale, baseScale, t);
                 transform.localScale = Vector3.one * currentScale;
             }

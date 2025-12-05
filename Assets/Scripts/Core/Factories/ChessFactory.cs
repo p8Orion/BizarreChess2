@@ -34,7 +34,7 @@ namespace BizarreChess.Core.Factories
             {   
                 Board = board,
                 PlayerArmies = new List<ArmyDefinition> { classicArmy, camelArmy },
-                PlayerColorSchemes = new List<PlayerColorScheme> { new PlayerColorScheme(new Color(0.75f, 0, 0), new Color(0.75f, 0f, 0f)), PlayerColors.Get(1) }
+                PlayerColorSchemes = new List<PlayerColorScheme> { new PlayerColorScheme(new Color(0f, 0.75f, 0), new Color(0f, 0.75f, 0f)), PlayerColors.Get(1) }
             };
             
             setup.ApplyColors();

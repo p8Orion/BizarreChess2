@@ -50,7 +50,23 @@ namespace BizarreChess.Core.Units
         /// - Other colors = static (not replaced)
         /// </summary>
         public Texture2D DisplacementTexture;
-        public float PieceHeight = 1.5f;        // Height for displacement mode
+        /// <summary>
+        /// For RevolutionVolume mode. The PNG is a cross-section profile cut from center to edge:
+        /// - Y axis of image = height of the piece (bottom row = base, top row = tip)
+        /// - X axis of image = radius from center outward (left = center axis, right = outer edge)
+        /// 
+        /// For each row, the generator scans left-to-right:
+        /// - First non-transparent pixel = inner radius (hollow interior if X > 0)
+        /// - Last non-transparent pixel = outer radius
+        /// 
+        /// Draw the right half of the piece silhouette. Examples:
+        /// - Solid pawn: filled silhouette touching left edge (X=0) at all heights
+        /// - Wine glass: gap at left (hollow interior), filled at right (glass walls)
+        /// 
+        /// The resulting mesh uses the player's primary color uniformly.
+        /// </summary>
+        public Texture2D RevolutionTexture;
+        public float PieceHeight = 1.5f;        // Height for displacement/revolution mode
 
         [Header("Abilities (Future)")]
         public List<AbilityUnlock> Abilities;
@@ -119,7 +135,14 @@ namespace BizarreChess.Core.Units
         /// <summary>
         /// 3D cylinder from PNG. Alpha=radius, #00FF00=primary color, #FF00FF=secondary color
         /// </summary>
-        DisplacementMap
+        DisplacementMap,
+        /// <summary>
+        /// 3D lathe/revolution volume from PNG profile. 
+        /// X axis = height, Y axis = single pixel column defining the profile.
+        /// Red channel = outer radius, Green channel = inner radius (for concave shapes).
+        /// Alpha = color intensity. RGB defines the color at that height.
+        /// </summary>
+        RevolutionVolume
     }
 
     /// <summary>

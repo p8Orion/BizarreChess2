@@ -447,6 +447,14 @@ namespace BizarreChess
                         );
                         break;
 
+                    case PieceRenderMode.RevolutionVolume:
+                        pieceGO = RevolutionMeshGenerator.CreateRevolutionObject(
+                            definition.RevolutionTexture,
+                            isWhite,
+                            definition.PieceHeight
+                        );
+                        break;
+
                     default:
                         // Fallback to Token2D with no texture
                         pieceGO = Token2DMeshGenerator.CreateTokenObject(null, isWhite);
@@ -552,15 +560,48 @@ namespace BizarreChess
             if (_offlineMode)
             {
                 var unit = _gameState.GetUnit(unitId);
-                if (unit != null && unit.OwnerId == _gameState.CurrentPlayerId)
+                if (unit == null) return;
+
+                // If we have a selected unit and clicked on an enemy, try to capture
+                if (_selectedUnitId.HasValue && unit.OwnerId != _gameState.CurrentPlayerId)
+                {
+                    int targetNode = unit.CurrentNodeId;
+                    if (_validMoves.Contains(targetNode))
+                    {
+                        ExecuteMove(_selectedUnitId.Value, targetNode);
+                        return;
+                    }
+                }
+
+                // Otherwise, select our own unit
+                if (unit.OwnerId == _gameState.CurrentPlayerId)
                 {
                     SelectUnit(unitId);
                 }
             }
             else
             {
-                // Network mode - check if it's our unit
-                if (_networkedGameState.IsMyTurn())
+                // Network mode
+                if (!_networkedGameState.IsMyTurn()) return;
+
+                var units = _networkedGameState.GetAllUnits();
+                var unit = units.Find(u => u.UnitId == unitId);
+                if (unit == null) return;
+
+                // If we have a selected unit and clicked on an enemy, try to capture
+                if (_selectedUnitId.HasValue && unit.OwnerId != _networkedGameState.LocalPlayerId)
+                {
+                    int targetNode = unit.CurrentNodeId;
+                    if (_validMoves.Contains(targetNode))
+                    {
+                        _networkedGameState.RequestMoveServerRpc(_selectedUnitId.Value, targetNode);
+                        ClearSelection();
+                        return;
+                    }
+                }
+
+                // Otherwise, select our own unit
+                if (unit.OwnerId == _networkedGameState.LocalPlayerId)
                 {
                     SelectUnit(unitId);
                 }

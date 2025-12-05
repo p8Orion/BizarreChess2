@@ -340,11 +340,24 @@ namespace BizarreChess.Core.Factories
 
         /// <summary>
         /// Apply piece textures from Resources folder.
-        /// Tries to load from Pieces/Displacement first, falls back to Pieces/Tokens, then Token2D with no texture.
+        /// Priority order:
+        /// 1. Revolution (Pieces/Revolution/) - lathe-like 3D volume
+        /// 2. Displacement (Pieces/Displacement/) - cylindrical displacement map
+        /// 3. Token (Pieces/Tokens/) - flat cylinder with PNG on top
+        /// 4. Fallback: Token2D with no texture (solid color cylinder)
         /// </summary>
         private static void ApplyPieceTextures(UnitDefinition unit, string pieceName)
         {
-            // Try displacement texture first (3D from PNG)
+            // Try revolution texture first (lathe-like 3D from profile PNG)
+            var revolutionTex = Resources.Load<Texture2D>($"Pieces/Revolution/{pieceName}");
+            if (revolutionTex != null)
+            {
+                unit.RenderMode = PieceRenderMode.RevolutionVolume;
+                unit.RevolutionTexture = revolutionTex;
+                return;
+            }
+
+            // Try displacement texture (3D cylinder from PNG)
             var displacementTex = Resources.Load<Texture2D>($"Pieces/Displacement/{pieceName}");
             if (displacementTex != null)
             {
