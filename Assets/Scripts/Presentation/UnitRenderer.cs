@@ -6,7 +6,7 @@ namespace BizarreChess.Presentation
 {
     /// <summary>
     /// Renders a single unit on the board.
-    /// Supports 2D (sprites/text) and 3D (mesh) rendering modes.
+    /// Supports Token2D and DisplacementMap rendering modes.
     /// </summary>
     public class UnitRenderer : MonoBehaviour
     {
@@ -18,9 +18,11 @@ namespace BizarreChess.Presentation
         [SerializeField] private GameObject _healthBar;
         [SerializeField] private Transform _healthFill;
 
-        [Header("Colors")]
-        [SerializeField] private Color _player1Color = new Color(0.95f, 0.92f, 0.85f); // Ivory
-        [SerializeField] private Color _player2Color = new Color(0.15f, 0.12f, 0.10f); // Dark wood
+        [Header("Player Colors")]
+        [SerializeField] private Color _player1PrimaryColor = new Color(0.95f, 0.92f, 0.85f); // Ivory
+        [SerializeField] private Color _player1SecondaryColor = new Color(0.85f, 0.82f, 0.75f); // Darker ivory
+        [SerializeField] private Color _player2PrimaryColor = new Color(0.15f, 0.12f, 0.10f); // Dark wood
+        [SerializeField] private Color _player2SecondaryColor = new Color(0.25f, 0.22f, 0.20f); // Lighter dark wood
         [SerializeField] private Color _selectedColor = new Color(1f, 1f, 0f, 0.5f);
         [SerializeField] private Color _damagedColor = Color.red;
 
@@ -38,7 +40,7 @@ namespace BizarreChess.Presentation
         private bool _isMoving;
         private bool _isSelected;
         private float _moveProgress;
-        private bool _is3D;
+        private PieceRenderMode _renderMode;
 
         public void Initialize(UnitState state, UnitDefinition definition, Vector3 position)
         {
@@ -46,6 +48,7 @@ namespace BizarreChess.Presentation
             _currentState = state;
             _definition = definition;
             _targetPosition = position;
+            _renderMode = definition.RenderMode;
 
             // Auto-find components if not assigned (for dynamically created units)
             if (_meshRenderer == null)
@@ -55,17 +58,15 @@ namespace BizarreChess.Presentation
             if (_spriteRenderer == null)
                 _spriteRenderer = GetComponent<SpriteRenderer>();
 
-            // Determine render mode
-            _is3D = _meshRenderer != null;
-            
-            // Position differs for 2D vs 3D
-            if (_is3D)
+            // Both render modes use 3D meshes, position them on the board
+            bool hasMesh = _meshRenderer != null;
+            if (hasMesh)
             {
                 transform.position = position; // 3D pieces sit on the board
             }
             else
             {
-                transform.position = position + Vector3.up * 0.5f; // 2D hovers above
+                transform.position = position + Vector3.up * 0.5f; // 2D fallback hovers above
             }
 
             UpdateVisuals();
@@ -79,21 +80,29 @@ namespace BizarreChess.Presentation
 
         private void UpdateVisuals()
         {
-            // Set color based on player
-            Color playerColor = _currentState.OwnerId == 0 ? _player1Color : _player2Color;
+            // Get player colors
+            Color primaryColor = _currentState.OwnerId == 0 ? _player1PrimaryColor : _player2PrimaryColor;
+            Color secondaryColor = _currentState.OwnerId == 0 ? _player1SecondaryColor : _player2SecondaryColor;
             Color outlineColor = _currentState.OwnerId == 0 ? Color.black : Color.white;
 
-            // 3D mesh rendering
-            if (_is3D && _meshRenderer != null)
+            // 3D mesh rendering (Token2D or DisplacementMap)
+            if (_meshRenderer != null && _meshRenderer.material != null)
             {
-                // Material color is already set by ChessPieceMeshGenerator
-                // But we can update it here for state changes
-                if (_meshRenderer.material != null)
+                var mat = _meshRenderer.material;
+                
+                if (_renderMode == PieceRenderMode.DisplacementMap)
                 {
-                    _meshRenderer.material.color = playerColor;
+                    // For displacement mode, set shader properties for color replacement
+                    mat.SetColor("_PrimaryColor", primaryColor);
+                    mat.SetColor("_SecondaryColor", secondaryColor);
+                }
+                else
+                {
+                    // For Token2D, just set the main color (texture handles the rest)
+                    mat.color = primaryColor;
                 }
             }
-            // 2D Unicode text fallback
+            // 2D Unicode text fallback (when no mesh)
             else if (_unicodeText != null)
             {
                 char pieceChar = _definition.GetUnicode(_currentState.OwnerId);
@@ -106,7 +115,7 @@ namespace BizarreChess.Presentation
                 
                 _unicodeText.text = displayText;
                 _unicodeText.fontSize = 5;
-                _unicodeText.color = playerColor;
+                _unicodeText.color = primaryColor;
                 _unicodeText.outlineWidth = 0.15f;
                 _unicodeText.outlineColor = outlineColor;
                 _unicodeText.fontStyle = TMPro.FontStyles.Bold;
@@ -116,7 +125,7 @@ namespace BizarreChess.Presentation
             if (_spriteRenderer != null && _definition.GetSprite(_currentState.OwnerId) != null)
             {
                 _spriteRenderer.sprite = _definition.GetSprite(_currentState.OwnerId);
-                _spriteRenderer.color = playerColor;
+                _spriteRenderer.color = primaryColor;
                 if (_unicodeText != null) _unicodeText.enabled = false;
             }
 
@@ -152,11 +161,12 @@ namespace BizarreChess.Presentation
             }
 
             // Visual feedback - scale up slightly when selected
-            float baseScale = _is3D ? 0.8f : 1f; // 3D pieces are scaled to 0.8
+            // Token2D has no scale applied, DisplacementMap has 0.8 scale from generator
+            float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
             transform.localScale = Vector3.one * baseScale * (selected ? 1.15f : 1f);
             
-            // For 3D, add emission glow when selected
-            if (_is3D && _meshRenderer != null && _meshRenderer.material != null)
+            // Add emission glow when selected (works for both render modes)
+            if (_meshRenderer != null && _meshRenderer.material != null)
             {
                 if (selected)
                 {
@@ -177,7 +187,9 @@ namespace BizarreChess.Presentation
         public void MoveTo(Vector3 newPosition)
         {
             _startPosition = transform.position;
-            _targetPosition = _is3D ? newPosition : newPosition + Vector3.up * 0.5f;
+            // Both render modes use 3D meshes that sit on the board
+            bool hasMesh = _meshRenderer != null;
+            _targetPosition = hasMesh ? newPosition : newPosition + Vector3.up * 0.5f;
             _isMoving = true;
             _moveProgress = 0f;
             

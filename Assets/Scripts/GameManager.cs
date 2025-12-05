@@ -414,9 +414,33 @@ namespace BizarreChess
             }
             else
             {
-                // Create 3D chess piece
+                // Create piece based on render mode
                 bool isWhite = unit.OwnerId == 0;
-                var pieceGO = ChessPieceMeshGenerator.CreatePieceObject(definition.PieceType, isWhite);
+                GameObject pieceGO;
+
+                switch (definition.RenderMode)
+                {
+                    case PieceRenderMode.Token2D:
+                        pieceGO = Token2DMeshGenerator.CreateTokenObject(
+                            definition.TokenTexture, 
+                            isWhite
+                        );
+                        break;
+
+                    case PieceRenderMode.DisplacementMap:
+                        pieceGO = DisplacementMeshGenerator.CreateDisplacementObject(
+                            definition.DisplacementTexture,
+                            isWhite,
+                            definition.PieceHeight
+                        );
+                        break;
+
+                    default:
+                        // Fallback to Token2D with no texture
+                        pieceGO = Token2DMeshGenerator.CreateTokenObject(null, isWhite);
+                        break;
+                }
+
                 pieceGO.name = $"Unit_{unit.UnitId}_{unit.DefinitionId}";
                 pieceGO.transform.SetParent(_unitsContainer);
                 

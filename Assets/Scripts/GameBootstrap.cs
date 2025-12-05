@@ -31,6 +31,21 @@ namespace BizarreChess
             }
         }
 
+        private void Start()
+        {
+            // Always ensure camera has the controller, even in pre-existing scenes
+            EnsureCameraController();
+        }
+
+        private void EnsureCameraController()
+        {
+            var mainCam = Camera.main;
+            if (mainCam != null && mainCam.GetComponent<CameraController>() == null)
+            {
+                mainCam.gameObject.AddComponent<CameraController>();
+            }
+        }
+
         [ContextMenu("Setup Scene")]
         public void SetupScene()
         {
@@ -61,6 +76,13 @@ namespace BizarreChess
             mainCam.orthographic = false;
             mainCam.fieldOfView = 60f;
             mainCam.backgroundColor = new Color(0.15f, 0.15f, 0.2f);
+            
+            // Add camera controller for right-click rotation
+            var cameraController = mainCam.GetComponent<CameraController>();
+            if (cameraController == null)
+            {
+                cameraController = mainCam.gameObject.AddComponent<CameraController>();
+            }
         }
 
         private void SetupLighting()

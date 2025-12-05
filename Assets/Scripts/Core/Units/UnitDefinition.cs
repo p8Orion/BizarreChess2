@@ -38,6 +38,20 @@ namespace BizarreChess.Core.Units
         public Sprite SpriteWhite;
         public Sprite SpriteBlack;
 
+        [Header("3D Render Mode")]
+        public PieceRenderMode RenderMode;
+        public Texture2D TokenTexture;        // For Token2D mode - displayed on top of flat cylinder
+        /// <summary>
+        /// For DisplacementMap mode. Texture encoding:
+        /// - X axis = angle (0° to 360°), Y axis = height (bottom to top)
+        /// - Alpha channel = radius (0=min, 255=max)
+        /// - Primary color: RGB(0, 255, 0) #00FF00 - replaced with player's main color
+        /// - Secondary color: RGB(255, 0, 255) #FF00FF - replaced with player's accent color
+        /// - Other colors = static (not replaced)
+        /// </summary>
+        public Texture2D DisplacementTexture;
+        public float PieceHeight = 1f;        // Height for displacement mode
+
         [Header("Abilities (Future)")]
         public List<AbilityUnlock> Abilities;
 
@@ -93,6 +107,19 @@ namespace BizarreChess.Core.Units
         Queen,
         King,
         Custom
+    }
+
+    /// <summary>
+    /// Rendering mode for 3D chess pieces.
+    /// </summary>
+    public enum PieceRenderMode
+    {
+        /// <summary>Flat cylinder with PNG texture on top</summary>
+        Token2D,
+        /// <summary>
+        /// 3D cylinder from PNG. Alpha=radius, #00FF00=primary color, #FF00FF=secondary color
+        /// </summary>
+        DisplacementMap
     }
 
     /// <summary>

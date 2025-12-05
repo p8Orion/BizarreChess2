@@ -127,6 +127,9 @@ namespace BizarreChess.Core.Factories
             king.UnicodeWhite = ChessUnicode.WhiteKing;
             king.UnicodeBlack = ChessUnicode.BlackKing;
 
+            // 3D Rendering
+            ApplyPieceTextures(king, "King", 1.25f);
+
             return king;
         }
 
@@ -165,6 +168,9 @@ namespace BizarreChess.Core.Factories
             queen.UnicodeWhite = ChessUnicode.WhiteQueen;
             queen.UnicodeBlack = ChessUnicode.BlackQueen;
 
+            // 3D Rendering
+            ApplyPieceTextures(queen, "Queen", 1.1f);
+
             return queen;
         }
 
@@ -197,6 +203,9 @@ namespace BizarreChess.Core.Factories
             rook.UnicodeWhite = ChessUnicode.WhiteRook;
             rook.UnicodeBlack = ChessUnicode.BlackRook;
 
+            // 3D Rendering
+            ApplyPieceTextures(rook, "Rook", 0.9f);
+
             return rook;
         }
 
@@ -228,6 +237,9 @@ namespace BizarreChess.Core.Factories
             bishop.UnicodeWhite = ChessUnicode.WhiteBishop;
             bishop.UnicodeBlack = ChessUnicode.BlackBishop;
 
+            // 3D Rendering
+            ApplyPieceTextures(bishop, "Bishop", 1.0f);
+
             return bishop;
         }
 
@@ -258,6 +270,9 @@ namespace BizarreChess.Core.Factories
 
             knight.UnicodeWhite = ChessUnicode.WhiteKnight;
             knight.UnicodeBlack = ChessUnicode.BlackKnight;
+
+            // 3D Rendering
+            ApplyPieceTextures(knight, "Knight", 1.0f);
 
             return knight;
         }
@@ -301,7 +316,42 @@ namespace BizarreChess.Core.Factories
             pawn.UnicodeWhite = ChessUnicode.WhitePawn;
             pawn.UnicodeBlack = ChessUnicode.BlackPawn;
 
+            // 3D Rendering
+            ApplyPieceTextures(pawn, "Pawn", 0.8f);
+
             return pawn;
+        }
+
+        /// <summary>
+        /// Apply piece textures from Resources folder.
+        /// Tries to load from Pieces/Displacement first, falls back to Pieces/Tokens, then Token2D with no texture.
+        /// </summary>
+        private static void ApplyPieceTextures(UnitDefinition unit, string pieceName, float height)
+        {
+            // Try displacement texture first (3D from PNG)
+            var displacementTex = Resources.Load<Texture2D>($"Pieces/Displacement/{pieceName}");
+            if (displacementTex != null)
+            {
+                unit.RenderMode = PieceRenderMode.DisplacementMap;
+                unit.DisplacementTexture = displacementTex;
+                unit.PieceHeight = height;
+                return;
+            }
+
+            // Try token texture (flat cylinder with PNG)
+            var tokenTex = Resources.Load<Texture2D>($"Pieces/Tokens/{pieceName}");
+            if (tokenTex != null)
+            {
+                unit.RenderMode = PieceRenderMode.Token2D;
+                unit.TokenTexture = tokenTex;
+                unit.PieceHeight = height;
+                return;
+            }
+
+            // Fallback: Token2D with no texture (solid color cylinder)
+            unit.RenderMode = PieceRenderMode.Token2D;
+            unit.TokenTexture = null;
+            unit.PieceHeight = height;
         }
 
         /// <summary>
