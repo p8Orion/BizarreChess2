@@ -47,7 +47,10 @@ namespace BizarreChess.Networking
             base.OnNetworkSpawn();
 
             // Initialize chess setup (board, pieces, army)
-            _chessSetup = ChessFactory.CreateSetup(board: _boardDefinition);
+            // Use _boardDefinition if set in inspector, otherwise use default setup with abyss
+            _chessSetup = _boardDefinition != null 
+                ? ChessFactory.CreateSetup(board: _boardDefinition)
+                : ChessFactory.CreateDefaultSetup();
 
             // Subscribe to network variable changes (clients)
             CurrentTurn.OnValueChanged += (old, newVal) => OnTurnChanged?.Invoke();

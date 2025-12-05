@@ -222,26 +222,28 @@ namespace BizarreChess.Core.Factories
         }
 
         /// <summary>
-        /// Create an NxN board with X% of tiles as Abyss.
+        /// Create a board with X% of tiles as Abyss.
         /// Abyss tiles cannot be landed on but maintain edge connectivity (can be jumped over).
         /// Abyss tiles will not appear in the first 2 or last 2 rows (spawn zones).
         /// Abyss pattern is symmetric (mirrored horizontally and vertically) for fairness.
         /// </summary>
-        /// <param name="size">Board size (NxN)</param>
+        /// <param name="sizeX">Board width</param>
+        /// <param name="sizeY">Board height</param>
         /// <param name="abyssPercentage">Percentage of eligible tiles to become abyss (0-100)</param>
         /// <param name="seed">Random seed for reproducible generation (-1 for random)</param>
         public static BoardDefinition CreateBoardWithAbyss(
-            int size,
+            int sizeX,
+            int sizeY,
             float abyssPercentage,
             int seed = -1,
             string boardId = null,
             string displayName = null)
         {
             var board = ScriptableObject.CreateInstance<BoardDefinition>();
-            board.BoardId = boardId ?? $"abyss_{size}x{size}_{abyssPercentage:F0}pct";
-            board.DisplayName = displayName ?? $"{size}x{size} Abyss Board ({abyssPercentage:F0}%)";
-            board.Width = size;
-            board.Height = size;
+            board.BoardId = boardId ?? $"abyss_{sizeX}x{sizeY}_{abyssPercentage:F0}pct";
+            board.DisplayName = displayName ?? $"{sizeX}x{sizeY} Abyss Board ({abyssPercentage:F0}%)";
+            board.Width = sizeX;
+            board.Height = sizeY;
             board.PlacementMode = PlacementMode.Automatic;
             board.Nodes = new List<NodeDefinition>();
             board.Edges = new List<EdgeDefinition>();
@@ -252,12 +254,12 @@ namespace BizarreChess.Core.Factories
 
             // Only consider bottom half of eligible area (rows 2 to center-1)
             // These will be mirrored to create symmetric pattern
-            int centerY = size / 2;
+            int centerY = sizeY / 2;
             var bottomHalfTiles = new List<Vector2Int>();
             
             for (int y = 2; y < centerY; y++)
             {
-                for (int x = 0; x < size; x++)
+                for (int x = 0; x < sizeX; x++)
                 {
                     bottomHalfTiles.Add(new Vector2Int(x, y));
                 }
@@ -277,24 +279,24 @@ namespace BizarreChess.Core.Factories
             for (int i = 0; i < selectionsNeeded && i < bottomHalfTiles.Count; i++)
             {
                 var pos = bottomHalfTiles[i];
-                int id = pos.y * size + pos.x;
+                int id = pos.y * sizeX + pos.x;
                 
                 // Add original tile
                 abyssTiles.Add(id);
                 
                 // Add mirrored tile (both horizontally and vertically)
-                int mirrorX = size - 1 - pos.x;
-                int mirrorY = size - 1 - pos.y;
-                int mirrorId = mirrorY * size + mirrorX;
+                int mirrorX = sizeX - 1 - pos.x;
+                int mirrorY = sizeY - 1 - pos.y;
+                int mirrorId = mirrorY * sizeX + mirrorX;
                 abyssTiles.Add(mirrorId);
             }
 
             // Create all nodes (abyss tiles still exist, just with Abyss type)
-            for (int y = 0; y < size; y++)
+            for (int y = 0; y < sizeY; y++)
             {
-                for (int x = 0; x < size; x++)
+                for (int x = 0; x < sizeX; x++)
                 {
-                    int id = y * size + x;
+                    int id = y * sizeX + x;
                     bool isLight = (x + y) % 2 == 1;
                     NodeType nodeType = abyssTiles.Contains(id) ? NodeType.Abyss : NodeType.Normal;
 
@@ -308,34 +310,34 @@ namespace BizarreChess.Core.Factories
             }
 
             // Create edges (8-way connectivity including through abyss - allows jumping)
-            for (int y = 0; y < size; y++)
+            for (int y = 0; y < sizeY; y++)
             {
-                for (int x = 0; x < size; x++)
+                for (int x = 0; x < sizeX; x++)
                 {
-                    int id = y * size + x;
+                    int id = y * sizeX + x;
 
                     // Connect to right neighbor
-                    if (x < size - 1)
+                    if (x < sizeX - 1)
                     {
                         board.Edges.Add(new EdgeDefinition(id, id + 1));
                     }
 
                     // Connect to top neighbor
-                    if (y < size - 1)
+                    if (y < sizeY - 1)
                     {
-                        board.Edges.Add(new EdgeDefinition(id, id + size));
+                        board.Edges.Add(new EdgeDefinition(id, id + sizeX));
                     }
 
                     // Connect to top-right diagonal
-                    if (x < size - 1 && y < size - 1)
+                    if (x < sizeX - 1 && y < sizeY - 1)
                     {
-                        board.Edges.Add(new EdgeDefinition(id, id + size + 1));
+                        board.Edges.Add(new EdgeDefinition(id, id + sizeX + 1));
                     }
 
                     // Connect to top-left diagonal
-                    if (x > 0 && y < size - 1)
+                    if (x > 0 && y < sizeY - 1)
                     {
-                        board.Edges.Add(new EdgeDefinition(id, id + size - 1));
+                        board.Edges.Add(new EdgeDefinition(id, id + sizeX - 1));
                     }
                 }
             }

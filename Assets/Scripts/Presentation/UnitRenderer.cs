@@ -170,11 +170,11 @@ namespace BizarreChess.Presentation
                 _selectionIndicator.enabled = selected;
             }
 
-            // Visual feedback - scale up slightly when selected
+            // Keep consistent scale (no scale change on selection)
             // Token2D has no scale applied, DisplacementMap and RevolutionVolume have 0.8 scale from generator
             float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
                                _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
-            transform.localScale = Vector3.one * baseScale * (selected ? 1.15f : 1f);
+            transform.localScale = Vector3.one * baseScale;
             
             // Add emission glow when selected (works for both render modes)
             if (_meshRenderer != null && _meshRenderer.material != null)

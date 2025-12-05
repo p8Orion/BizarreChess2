@@ -23,8 +23,9 @@ namespace BizarreChess.Core.Factories
         {
             //var board = BoardFactory.CreateClassicBoard();
             var board = BoardFactory.CreateBoardWithAbyss(
-                size: 10,              // Tablero 8x8
-                abyssPercentage: 15,  // 15% de los tiles elegibles serán abismo
+                sizeX: 8,
+                sizeY: 10,
+                abyssPercentage: 20,  // 15% de los tiles elegibles serán abismo
                 seed: -1             // Seed opcional para reproducibilidad (-1 = random)
             );
             var classicArmy = ArmyFactory.CreateClassicArmy();

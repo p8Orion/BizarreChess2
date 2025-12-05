@@ -19,7 +19,7 @@ namespace BizarreChess.Presentation
     /// </summary>
     public static class RevolutionMeshGenerator
     {
-        public const int DEFAULT_RESOLUTION = 32;
+        public const int DEFAULT_RESOLUTION = 64;  // Was 32, increased for debugging
         public const float DEFAULT_SIMPLIFICATION = 0.9f;
         public const float DEFAULT_HEIGHT = 1.5f;
         public const float DEFAULT_SIZE = 1.0f;
@@ -57,17 +57,12 @@ namespace BizarreChess.Presentation
                 return GenerateDefaultMesh(height);
             }
 
-            // Step 3: Simplify with QEM
-            Mesh simplifiedMesh = MeshSimplifier.Simplify(denseMesh, simplificationRatio);
+            // Step 3: Simplify with QEM (temporarily disabled for debugging)
+            // Mesh simplifiedMesh = MeshSimplifier.Simplify(denseMesh, simplificationRatio);
+            Mesh simplifiedMesh = denseMesh;  // Skip simplification
 
             // Scale to target height
             ScaleMesh(simplifiedMesh, height / size);
-
-            // Cleanup intermediate mesh
-            if (denseMesh != simplifiedMesh)
-            {
-                Object.Destroy(denseMesh);
-            }
 
             simplifiedMesh.name = "RevolutionVolume";
             return simplifiedMesh;
