@@ -7,45 +7,54 @@ namespace BizarreChess.Core.Factories
 {
     /// <summary>
     /// High-level factory for creating complete chess game setups.
-    /// Combines BoardFactory, PiecesFactory, and ArmyFactory for convenience.
-    /// All components have sensible defaults but can be customized.
+    /// Combines BoardFactory and ArmyFactory for convenience.
+    /// Piece definitions are managed internally by ArmyFactory via PiecesFactory.
     /// </summary>
     public static class ChessFactory
     {
         #region Complete Setup
 
         /// <summary>
-        /// Create a complete chess setup with all defaults (classic 8x8 board, classic pieces, classic army).
+        /// Create a complete chess setup with all defaults (classic 8x8 board, classic vs camel army).
         /// </summary>
         public static ChessSetup CreateDefaultSetup()
         {
-            return CreateSetup();
+            //var board = BoardFactory.CreateClassicBoard();
+            var board = BoardFactory.CreateBoardWithAbyss(
+                size: 10,              // Tablero 8x8
+                abyssPercentage: 15,  // 15% de los tiles elegibles serán abismo
+                seed: 42              // Seed opcional para reproducibilidad (-1 = random)
+            );
+            var classicArmy = ArmyFactory.CreateClassicArmy();
+            var camelArmy = ArmyFactory.Get("camel_army");
+
+            return new ChessSetup
+            {
+                Board = board,
+                PlayerArmies = new List<ArmyDefinition> { classicArmy, camelArmy }
+            };
         }
 
         /// <summary>
         /// Create a complete chess setup with optional customizations.
         /// </summary>
         /// <param name="board">Custom board, or null for classic 8x8</param>
-        /// <param name="pieces">Custom piece definitions, or null for classic pieces</param>
         /// <param name="playerArmies">Armies for each player, or null for classic army for all</param>
         public static ChessSetup CreateSetup(
             BoardDefinition board = null,
-            Dictionary<string, UnitDefinition> pieces = null,
             List<ArmyDefinition> playerArmies = null)
         {
-            pieces ??= PiecesFactory.CreateAllPieceDefinitions();
             board ??= BoardFactory.CreateClassicBoard();
             
             if (playerArmies == null)
             {
-                var defaultArmy = ArmyFactory.CreateClassicArmy(pieces);
+                var defaultArmy = ArmyFactory.CreateClassicArmy();
                 playerArmies = new List<ArmyDefinition> { defaultArmy, defaultArmy };
             }
 
             return new ChessSetup
             {
                 Board = board,
-                Pieces = pieces,
                 PlayerArmies = playerArmies
             };
         }
@@ -67,34 +76,12 @@ namespace BizarreChess.Core.Factories
 
         #endregion
 
-        #region Pieces Shortcuts
-
-        /// <summary>
-        /// Create all classic chess pieces.
-        /// </summary>
-        public static Dictionary<string, UnitDefinition> CreatePieces()
-            => PiecesFactory.CreateAllPieceDefinitions();
-
-        /// <summary>
-        /// Create a specific piece by name.
-        /// </summary>
-        public static UnitDefinition CreatePiece(string name)
-            => PiecesFactory.CreatePieceDefinition(name);
-
-        #endregion
-
         #region Army Shortcuts
 
         /// <summary>
         /// Create classic 16-piece army.
         /// </summary>
         public static ArmyDefinition CreateArmy() => ArmyFactory.CreateClassicArmy();
-
-        /// <summary>
-        /// Create classic army with specific pieces.
-        /// </summary>
-        public static ArmyDefinition CreateArmy(Dictionary<string, UnitDefinition> pieces)
-            => ArmyFactory.CreateClassicArmy(pieces);
 
         /// <summary>
         /// Create custom army from placements.
@@ -121,15 +108,13 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         public static ChessSetup CreateMiniSetup()
         {
-            var pieces = PiecesFactory.CreateAllPieceDefinitions();
             var board = BoardFactory.CreateMiniBoard();
             // TODO: Create appropriate mini army (less pieces)
-            var army = ArmyFactory.CreateClassicArmy(pieces);
+            var army = ArmyFactory.CreateClassicArmy();
 
             return new ChessSetup
             {
                 Board = board,
-                Pieces = pieces,
                 PlayerArmies = new List<ArmyDefinition> { army, army }
             };
         }
@@ -139,15 +124,13 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         public static ChessSetup CreateGrandSetup()
         {
-            var pieces = PiecesFactory.CreateAllPieceDefinitions();
             var board = BoardFactory.CreateGrandBoard();
             // TODO: Create appropriate grand army (more pieces)
-            var army = ArmyFactory.CreateClassicArmy(pieces);
+            var army = ArmyFactory.CreateClassicArmy();
 
             return new ChessSetup
             {
                 Board = board,
-                Pieces = pieces,
                 PlayerArmies = new List<ArmyDefinition> { army, army }
             };
         }
@@ -157,15 +140,13 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         public static ChessSetup CreateCapablancaSetup()
         {
-            var pieces = PiecesFactory.CreateAllPieceDefinitions();
             var board = BoardFactory.CreateCapablancaBoard();
             // TODO: Add Archbishop and Chancellor pieces, create Capablanca army
-            var army = ArmyFactory.CreateClassicArmy(pieces);
+            var army = ArmyFactory.CreateClassicArmy();
 
             return new ChessSetup
             {
                 Board = board,
-                Pieces = pieces,
                 PlayerArmies = new List<ArmyDefinition> { army, army }
             };
         }
@@ -175,16 +156,13 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         public static ChessSetup CreateHordeSetup()
         {
-            var pieces = PiecesFactory.CreateAllPieceDefinitions();
             var board = BoardFactory.CreateClassicBoard();
-
-            var defenderArmy = ArmyFactory.CreateClassicArmy(pieces);
+            var defenderArmy = ArmyFactory.CreateClassicArmy();
             var hordeArmy = ArmyFactory.CreateHordeArmy(4);
 
             return new ChessSetup
             {
                 Board = board,
-                Pieces = pieces,
                 PlayerArmies = new List<ArmyDefinition> { defenderArmy, hordeArmy }
             };
         }
@@ -198,12 +176,16 @@ namespace BizarreChess.Core.Factories
     public class ChessSetup
     {
         public BoardDefinition Board;
-        public Dictionary<string, UnitDefinition> Pieces;
         
         /// <summary>
         /// Armies for each player. Index 0 = Player 1, Index 1 = Player 2, etc.
         /// </summary>
         public List<ArmyDefinition> PlayerArmies;
+
+        /// <summary>
+        /// Get all piece definitions used in this setup (from PiecesFactory cache).
+        /// </summary>
+        public Dictionary<string, UnitDefinition> Pieces => PiecesFactory.GetAll();
 
         // Alias for backwards compatibility
         public Dictionary<string, UnitDefinition> UnitDefinitions => Pieces;
@@ -224,4 +206,3 @@ namespace BizarreChess.Core.Factories
         }
     }
 }
-

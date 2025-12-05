@@ -105,6 +105,12 @@ namespace BizarreChess
         // Selection
         private int? _selectedUnitId;
         private List<int> _validMoves = new List<int>();
+        
+        // Drag state
+        private bool _isDragging;
+        private int? _draggingUnitId;
+        private float _lastDragSyncTime;
+        private const float DragSyncInterval = 0.25f; // Sync every 250ms
 
         // Persistence
         private IProfileService _profileService;
@@ -243,6 +249,11 @@ namespace BizarreChess
             _networkedGameState.OnTurnChanged += OnNetworkTurnChanged;
             _networkedGameState.OnGameEnded += OnNetworkGameEnded;
             _networkedGameState.OnGameStarted += OnNetworkGameStarted;
+            
+            // Drag synchronization events
+            _networkedGameState.OnDragStarted += OnRemoteDragStarted;
+            _networkedGameState.OnDragUpdated += OnRemoteDragUpdate;
+            _networkedGameState.OnDragEnded += OnRemoteDragEnded;
         }
 
         private System.Collections.IEnumerator WaitForNetworkedGameState()
@@ -599,6 +610,167 @@ namespace BizarreChess
             _boardRenderer?.ClearHighlights();
 
             OnSelectionCleared?.Invoke();
+        }
+
+        #endregion
+
+        #region Drag and Drop
+
+        /// <summary>
+        /// Check if a unit can be dragged by the current player.
+        /// </summary>
+        public bool CanDragUnit(int unitId)
+        {
+            if (_offlineMode)
+            {
+                var unit = _gameState?.GetUnit(unitId);
+                return unit != null && unit.OwnerId == _gameState.CurrentPlayerId;
+            }
+            else
+            {
+                if (_networkedGameState == null || !_networkedGameState.IsMyTurn())
+                    return false;
+                
+                var units = _networkedGameState.GetAllUnits();
+                var unit = units.Find(u => u.UnitId == unitId);
+                return unit != null && unit.OwnerId == _networkedGameState.LocalPlayerId;
+            }
+        }
+
+        /// <summary>
+        /// Get the current node of a unit.
+        /// </summary>
+        public int GetUnitCurrentNode(int unitId)
+        {
+            if (_offlineMode)
+            {
+                var unit = _gameState?.GetUnit(unitId);
+                return unit?.CurrentNodeId ?? -1;
+            }
+            else
+            {
+                var units = _networkedGameState?.GetAllUnits();
+                var unit = units?.Find(u => u.UnitId == unitId);
+                return unit?.CurrentNodeId ?? -1;
+            }
+        }
+
+        /// <summary>
+        /// Called when a drag starts on a unit.
+        /// </summary>
+        public void OnUnitDragStarted(int unitId)
+        {
+            _isDragging = true;
+            _draggingUnitId = unitId;
+            
+            // Select the unit (shows valid moves)
+            SelectUnit(unitId);
+            
+            // Network sync: notify other players
+            if (!_offlineMode && _networkedGameState != null)
+            {
+                _networkedGameState.NotifyDragStartServerRpc(unitId);
+            }
+            
+            Debug.Log($"[GameManager] Drag started on unit {unitId}");
+        }
+
+        /// <summary>
+        /// Called during drag to update position.
+        /// </summary>
+        public void OnUnitDragUpdate(int unitId, Vector3 worldPosition)
+        {
+            if (!_isDragging || _draggingUnitId != unitId) return;
+            
+            // Throttle network sync
+            if (!_offlineMode && _networkedGameState != null)
+            {
+                if (Time.time - _lastDragSyncTime >= DragSyncInterval)
+                {
+                    _lastDragSyncTime = Time.time;
+                    _networkedGameState.UpdateDragPositionServerRpc(unitId, worldPosition);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called when a drag ends.
+        /// Returns true if the move was successful.
+        /// </summary>
+        public bool OnUnitDragEnded(int unitId, int? targetNodeId, int originalNodeId)
+        {
+            if (!_isDragging || _draggingUnitId != unitId)
+            {
+                return false;
+            }
+            
+            _isDragging = false;
+            _draggingUnitId = null;
+            
+            bool success = false;
+            
+            // Check if dropped on a valid move
+            if (targetNodeId.HasValue && _validMoves.Contains(targetNodeId.Value))
+            {
+                if (_offlineMode)
+                {
+                    ExecuteMove(unitId, targetNodeId.Value);
+                    success = true;
+                }
+                else
+                {
+                    // Network mode - request move from server
+                    _networkedGameState?.RequestMoveServerRpc(unitId, targetNodeId.Value);
+                    success = true; // Assume success, server will correct if wrong
+                }
+            }
+            
+            // Network sync: notify other players
+            if (!_offlineMode && _networkedGameState != null)
+            {
+                _networkedGameState.NotifyDragEndServerRpc(unitId, success);
+            }
+            
+            // Clear selection if move failed
+            if (!success)
+            {
+                ClearSelection();
+            }
+            
+            return success;
+        }
+
+        /// <summary>
+        /// Called from network when another player starts dragging.
+        /// </summary>
+        public void OnRemoteDragStarted(int unitId)
+        {
+            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            {
+                renderer.StartDragRemote();
+            }
+        }
+
+        /// <summary>
+        /// Called from network when another player is dragging.
+        /// </summary>
+        public void OnRemoteDragUpdate(int unitId, Vector3 position)
+        {
+            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            {
+                renderer.UpdateDragPosition(position);
+            }
+        }
+
+        /// <summary>
+        /// Called from network when another player ends dragging.
+        /// </summary>
+        public void OnRemoteDragEnded(int unitId, bool success)
+        {
+            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            {
+                renderer.EndDragRemote(success);
+            }
         }
 
         #endregion

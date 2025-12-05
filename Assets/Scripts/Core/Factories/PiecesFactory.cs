@@ -5,14 +5,74 @@ using BizarreChess.Core.Units;
 namespace BizarreChess.Core.Factories
 {
     /// <summary>
-    /// Factory for creating classic chess piece definitions.
-    /// These pieces can be used across different board types and game modes.
+    /// Factory for creating chess piece definitions with caching.
+    /// Use Get() to obtain cached instances, avoiding duplicate ScriptableObjects.
     /// </summary>
     public static class PiecesFactory
     {
-        #region Individual Piece Definitions
+        #region Cache
 
-        public static UnitDefinition CreateKingDefinition()
+        private static readonly Dictionary<string, UnitDefinition> _cache = new Dictionary<string, UnitDefinition>();
+
+        /// <summary>
+        /// Get a piece definition by name. Returns cached instance or creates and caches a new one.
+        /// </summary>
+        public static UnitDefinition Get(string pieceName)
+        {
+            if (_cache.TryGetValue(pieceName, out var cached))
+                return cached;
+
+            var definition = CreateDefinition(pieceName);
+            if (definition != null)
+                _cache[pieceName] = definition;
+
+            return definition;
+        }
+
+        /// <summary>
+        /// Get all known piece definitions (cached).
+        /// </summary>
+        public static Dictionary<string, UnitDefinition> GetAll()
+        {
+            // Ensure all pieces are cached
+            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Pawn" };
+            foreach (var name in allNames)
+                Get(name);
+
+            return new Dictionary<string, UnitDefinition>(_cache);
+        }
+
+        /// <summary>
+        /// Clear the cache. Useful for testing or hot-reloading.
+        /// </summary>
+        public static void ClearCache()
+        {
+            _cache.Clear();
+        }
+
+        /// <summary>
+        /// Create a new definition (internal, use Get() for cached access).
+        /// </summary>
+        private static UnitDefinition CreateDefinition(string pieceName)
+        {
+            return pieceName switch
+            {
+                "King" => CreateKingDefinition(),
+                "Queen" => CreateQueenDefinition(),
+                "Rook" => CreateRookDefinition(),
+                "Bishop" => CreateBishopDefinition(),
+                "Knight" => CreateKnightDefinition(),
+                "Camel" => CreateCamelDefinition(),
+                "Pawn" => CreatePawnDefinition(),
+                _ => null
+            };
+        }
+
+        #endregion
+
+        #region Individual Piece Definitions (Private)
+
+        private static UnitDefinition CreateKingDefinition()
         {
             var king = ScriptableObject.CreateInstance<UnitDefinition>();
             king.UnitId = "King";
@@ -49,7 +109,7 @@ namespace BizarreChess.Core.Factories
             return king;
         }
 
-        public static UnitDefinition CreateQueenDefinition()
+        private static UnitDefinition CreateQueenDefinition()
         {
             var queen = ScriptableObject.CreateInstance<UnitDefinition>();
             queen.UnitId = "Queen";
@@ -91,7 +151,7 @@ namespace BizarreChess.Core.Factories
             return queen;
         }
 
-        public static UnitDefinition CreateRookDefinition()
+        private static UnitDefinition CreateRookDefinition()
         {
             var rook = ScriptableObject.CreateInstance<UnitDefinition>();
             rook.UnitId = "Rook";
@@ -126,7 +186,7 @@ namespace BizarreChess.Core.Factories
             return rook;
         }
 
-        public static UnitDefinition CreateBishopDefinition()
+        private static UnitDefinition CreateBishopDefinition()
         {
             var bishop = ScriptableObject.CreateInstance<UnitDefinition>();
             bishop.UnitId = "Bishop";
@@ -160,7 +220,7 @@ namespace BizarreChess.Core.Factories
             return bishop;
         }
 
-        public static UnitDefinition CreateKnightDefinition()
+        private static UnitDefinition CreateKnightDefinition()
         {
             var knight = ScriptableObject.CreateInstance<UnitDefinition>();
             knight.UnitId = "Knight";
@@ -182,7 +242,7 @@ namespace BizarreChess.Core.Factories
 
             knight.MovementPatterns = new List<MovementPattern>
             {
-                new MovementPattern(MovementType.Knight) { CanJump = true }
+                MovementPattern.Leaper(2, 1)  // Knight: L-shape (2,1)
             };
 
             knight.UnicodeWhite = ChessUnicode.WhiteKnight;
@@ -194,7 +254,42 @@ namespace BizarreChess.Core.Factories
             return knight;
         }
 
-        public static UnitDefinition CreatePawnDefinition()
+        private static UnitDefinition CreateCamelDefinition()
+        {
+            var camel = ScriptableObject.CreateInstance<UnitDefinition>();
+            camel.UnitId = "Camel";
+            camel.DisplayName = "Camel";
+            camel.PieceType = PieceType.Custom;
+            camel.BaseCost = 2; // Slightly less valuable than knight (fewer moves on small boards)
+
+            camel.BaseStats = new UnitBaseStats
+            {
+                Health = 40,
+                Attack = 7,
+                Defense = 2,
+                Speed = 8,
+                Range = 1,
+                Movement = 1
+            };
+
+            camel.GrowthStats = UnitGrowthStats.Default;
+
+            camel.MovementPatterns = new List<MovementPattern>
+            {
+                MovementPattern.Leaper(3, 1)  // Camel: extended L-shape (3,1)
+            };
+
+            // No standard unicode for Camel, use Knight as fallback
+            camel.UnicodeWhite = ChessUnicode.WhiteKnight;
+            camel.UnicodeBlack = ChessUnicode.BlackKnight;
+
+            // 3D Rendering - will fallback to token if no texture
+            ApplyPieceTextures(camel, "Camel");
+
+            return camel;
+        }
+
+        private static UnitDefinition CreatePawnDefinition()
         {
             var pawn = ScriptableObject.CreateInstance<UnitDefinition>();
             pawn.UnitId = "Pawn";
@@ -274,42 +369,6 @@ namespace BizarreChess.Core.Factories
 
         #endregion
 
-        #region Convenience Methods
-
-        /// <summary>
-        /// Get all classic chess piece definitions.
-        /// </summary>
-        public static Dictionary<string, UnitDefinition> CreateAllPieceDefinitions()
-        {
-            return new Dictionary<string, UnitDefinition>
-            {
-                { "King", CreateKingDefinition() },
-                { "Queen", CreateQueenDefinition() },
-                { "Rook", CreateRookDefinition() },
-                { "Bishop", CreateBishopDefinition() },
-                { "Knight", CreateKnightDefinition() },
-                { "Pawn", CreatePawnDefinition() }
-            };
-        }
-
-        /// <summary>
-        /// Get a specific piece definition by name.
-        /// </summary>
-        public static UnitDefinition CreatePieceDefinition(string pieceName)
-        {
-            return pieceName switch
-            {
-                "King" => CreateKingDefinition(),
-                "Queen" => CreateQueenDefinition(),
-                "Rook" => CreateRookDefinition(),
-                "Bishop" => CreateBishopDefinition(),
-                "Knight" => CreateKnightDefinition(),
-                "Pawn" => CreatePawnDefinition(),
-                _ => null
-            };
-        }
-
-        #endregion
     }
 }
 

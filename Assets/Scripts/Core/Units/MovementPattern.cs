@@ -13,11 +13,15 @@ namespace BizarreChess.Core.Units
     {
         public MovementType Type;
         public int MaxDistance;          // -1 for unlimited (queen, rook, bishop)
-        public bool CanJump;             // Knight can jump over pieces
+        public bool CanJump;             // Leaper pieces can jump over others
         public bool CaptureOnly;         // Pawn diagonal capture
         public bool MoveOnly;            // Pawn forward (can't capture going forward)
         public bool FirstMoveOnly;       // Pawn double move on first turn
         public Vector2Int Direction;     // For directional moves (pawn forward)
+        
+        // Leaper movement parameters (for Knight, Camel, Zebra, etc.)
+        public int LeapX;                // Primary leap distance (e.g., 2 for Knight)
+        public int LeapY;                // Secondary leap distance (e.g., 1 for Knight)
 
         public MovementPattern() { }
 
@@ -30,6 +34,23 @@ namespace BizarreChess.Core.Units
             MoveOnly = false;
             FirstMoveOnly = false;
             Direction = Vector2Int.zero;
+            LeapX = 0;
+            LeapY = 0;
+        }
+
+        /// <summary>
+        /// Create a Leaper movement pattern (Knight, Camel, Zebra, etc.)
+        /// </summary>
+        /// <param name="leapX">Primary leap distance (larger value)</param>
+        /// <param name="leapY">Secondary leap distance (smaller value)</param>
+        public static MovementPattern Leaper(int leapX, int leapY)
+        {
+            return new MovementPattern(MovementType.Leaper)
+            {
+                LeapX = leapX,
+                LeapY = leapY,
+                CanJump = true
+            };
         }
 
         /// <summary>
@@ -56,8 +77,8 @@ namespace BizarreChess.Core.Units
                     AddLineTargets(result, board, fromNode, new Vector2Int(-1, -1), maxDist, isOccupied, isEnemy);
                     break;
 
-                case MovementType.Knight:
-                    AddKnightTargets(result, board, fromNode, isOccupied, isEnemy);
+                case MovementType.Leaper:
+                    AddLeaperTargets(result, board, fromNode, LeapX, LeapY, isOccupied, isEnemy);
                     break;
 
                 case MovementType.Adjacent:
@@ -96,12 +117,19 @@ namespace BizarreChess.Core.Units
 
                 if (isOccupied(nodeId))
                 {
-                    // Can capture enemy, but can't go further
+                    // Can capture enemy
                     if (isEnemy(nodeId) && !MoveOnly)
                     {
                         result.Add(nodeId);
                     }
-                    break;
+                    
+                    // If can't jump, stop here
+                    if (!CanJump)
+                        break;
+                    
+                    // If can jump, continue but don't add this square as a move target
+                    // (we already added it if it was an enemy capture)
+                    continue;
                 }
 
                 if (!CaptureOnly)
@@ -111,17 +139,26 @@ namespace BizarreChess.Core.Units
             }
         }
 
-        private void AddKnightTargets(List<int> result, BoardGraph board, int fromNode,
-            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        private void AddLeaperTargets(List<int> result, BoardGraph board, int fromNode,
+            int leapX, int leapY, Func<int, bool> isOccupied, Func<int, bool> isEnemy)
         {
             var coords = board.Definition.GetCoordinates(fromNode);
-            var offsets = new Vector2Int[]
+            
+            // Generate all 8 possible leap positions (4 if leapX == leapY)
+            var offsets = new List<Vector2Int>
             {
-                new Vector2Int(2, 1), new Vector2Int(2, -1),
-                new Vector2Int(-2, 1), new Vector2Int(-2, -1),
-                new Vector2Int(1, 2), new Vector2Int(1, -2),
-                new Vector2Int(-1, 2), new Vector2Int(-1, -2)
+                new Vector2Int(leapX, leapY), new Vector2Int(leapX, -leapY),
+                new Vector2Int(-leapX, leapY), new Vector2Int(-leapX, -leapY)
             };
+            
+            // Add swapped offsets only if leapX != leapY (otherwise they'd be duplicates)
+            if (leapX != leapY)
+            {
+                offsets.Add(new Vector2Int(leapY, leapX));
+                offsets.Add(new Vector2Int(leapY, -leapX));
+                offsets.Add(new Vector2Int(-leapY, leapX));
+                offsets.Add(new Vector2Int(-leapY, -leapX));
+            }
 
             foreach (var offset in offsets)
             {
@@ -233,7 +270,7 @@ namespace BizarreChess.Core.Units
     {
         Orthogonal,      // Rook-like (horizontal/vertical lines)
         Diagonal,        // Bishop-like
-        Knight,          // L-shape jump
+        Leaper,          // Jump pattern defined by LeapX, LeapY (Knight=2,1 Camel=3,1 Zebra=3,2 etc.)
         Adjacent,        // King-like (1 square any direction)
         Forward,         // Pawn forward movement
         DiagonalCapture, // Pawn diagonal capture
@@ -268,7 +305,7 @@ namespace BizarreChess.Core.Units
 
         public static MovementPattern[] Knight => new[]
         {
-            new MovementPattern(MovementType.Knight) { CanJump = true }
+            MovementPattern.Leaper(2, 1)
         };
 
         public static MovementPattern[] Pawn => new[]

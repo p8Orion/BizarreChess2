@@ -29,6 +29,12 @@ namespace BizarreChess.Presentation
         [Header("Animation")]
         [SerializeField] private float _moveSpeed = 5f;
         [SerializeField] private float _bounceHeight = 0.2f;
+        
+        [Header("Drag Settings")]
+        [SerializeField] private float _dragLiftHeight = 0.5f;
+        [SerializeField] private float _dragScale = 1.2f;
+        [SerializeField] private float _dragLiftSpeed = 10f;
+        [SerializeField] private float _returnSpeed = 8f;
 
         public int UnitId { get; private set; }
         public System.Action OnClicked;
@@ -41,6 +47,13 @@ namespace BizarreChess.Presentation
         private bool _isSelected;
         private float _moveProgress;
         private PieceRenderMode _renderMode;
+        
+        // Drag state
+        private bool _isDragging;
+        private bool _isReturning;
+        private Vector3 _originalPosition;
+        private Vector3 _originalScale;
+        private float _currentLiftProgress;
 
         public void Initialize(UnitState state, UnitDefinition definition, Vector3 position)
         {
@@ -193,11 +206,29 @@ namespace BizarreChess.Presentation
             _isMoving = true;
             _moveProgress = 0f;
             
+            // Update original position for future drags
+            _originalPosition = _targetPosition;
+            
             Debug.Log($"[UnitRenderer] MoveTo: from {_startPosition} to {_targetPosition}");
         }
 
         private void Update()
         {
+            // Handle returning to original position after failed drag
+            if (_isReturning)
+            {
+                UpdateReturn();
+                return;
+            }
+            
+            // Handle lift animation during drag
+            if (_isDragging)
+            {
+                UpdateDragLift();
+                return;
+            }
+            
+            // Handle normal movement animation
             if (_isMoving)
             {
                 _moveProgress += Time.deltaTime * _moveSpeed;
@@ -218,6 +249,141 @@ namespace BizarreChess.Presentation
                 }
             }
         }
+        
+        #region Drag and Drop
+        
+        /// <summary>
+        /// Called when the player starts dragging this piece.
+        /// </summary>
+        public void StartDrag()
+        {
+            if (_isDragging) return;
+            
+            _isDragging = true;
+            _isMoving = false;
+            _isReturning = false;
+            _originalPosition = transform.position;
+            _originalScale = transform.localScale;
+            _currentLiftProgress = 0f;
+            
+            Debug.Log($"[UnitRenderer] StartDrag: Unit {UnitId}");
+        }
+        
+        /// <summary>
+        /// Called when the player starts dragging this piece (remote player via network).
+        /// </summary>
+        public void StartDragRemote()
+        {
+            if (_isDragging) return;
+            
+            _isDragging = true;
+            _isMoving = false;
+            _isReturning = false;
+            _originalPosition = transform.position;
+            _originalScale = transform.localScale;
+            _currentLiftProgress = 0f;
+        }
+        
+        /// <summary>
+        /// Updates the piece position while being dragged.
+        /// </summary>
+        public void UpdateDragPosition(Vector3 worldPosition)
+        {
+            if (!_isDragging) return;
+            
+            // Apply lifted Y position
+            Vector3 dragPos = new Vector3(worldPosition.x, _dragLiftHeight, worldPosition.z);
+            transform.position = dragPos;
+        }
+        
+        /// <summary>
+        /// Called when the drag ends.
+        /// </summary>
+        /// <param name="success">If true, the move was valid. If false, return to original position.</param>
+        public void EndDrag(bool success)
+        {
+            if (!_isDragging) return;
+            
+            _isDragging = false;
+            
+            if (success)
+            {
+                // Move was successful - scale will be restored via MoveTo animation
+                transform.localScale = _originalScale;
+            }
+            else
+            {
+                // Move failed - animate back to original position
+                _isReturning = true;
+                _startPosition = transform.position;
+                _targetPosition = _originalPosition;
+                _moveProgress = 0f;
+            }
+            
+            Debug.Log($"[UnitRenderer] EndDrag: Unit {UnitId}, success={success}");
+        }
+        
+        /// <summary>
+        /// Called when a remote player's drag ends.
+        /// </summary>
+        public void EndDragRemote(bool success)
+        {
+            if (!_isDragging) return;
+            
+            _isDragging = false;
+            
+            if (!success)
+            {
+                // Animate back
+                _isReturning = true;
+                _startPosition = transform.position;
+                _targetPosition = _originalPosition;
+                _moveProgress = 0f;
+            }
+            
+            transform.localScale = _originalScale;
+        }
+        
+        private void UpdateDragLift()
+        {
+            // Smoothly scale up during drag
+            _currentLiftProgress = Mathf.MoveTowards(_currentLiftProgress, 1f, Time.deltaTime * _dragLiftSpeed);
+            
+            float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
+            float targetScale = baseScale * _dragScale;
+            float currentScale = Mathf.Lerp(baseScale, targetScale, _currentLiftProgress);
+            transform.localScale = Vector3.one * currentScale;
+        }
+        
+        private void UpdateReturn()
+        {
+            _moveProgress += Time.deltaTime * _returnSpeed;
+            
+            if (_moveProgress >= 1f)
+            {
+                transform.position = _targetPosition;
+                transform.localScale = _originalScale;
+                _isReturning = false;
+            }
+            else
+            {
+                // Smooth lerp back with ease-out
+                float t = 1f - Mathf.Pow(1f - _moveProgress, 2f);
+                transform.position = Vector3.Lerp(_startPosition, _targetPosition, t);
+                
+                // Also restore scale
+                float baseScale = _renderMode == PieceRenderMode.DisplacementMap ? 0.8f : 1f;
+                float currentScale = Mathf.Lerp(baseScale * _dragScale, baseScale, t);
+                transform.localScale = Vector3.one * currentScale;
+            }
+        }
+        
+        /// <summary>
+        /// Gets whether this unit is currently being dragged.
+        /// </summary>
+        public bool IsDragging => _isDragging;
+        
+        #endregion
 
         private void SetAlpha(float alpha)
         {

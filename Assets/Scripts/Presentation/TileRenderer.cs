@@ -118,6 +118,7 @@ namespace BizarreChess.Presentation
                 NodeType.Teleport => "◎",
                 NodeType.Destroyed => "░",
                 NodeType.Unstable => "~",
+                NodeType.Abyss => "▼",
                 _ => ""
             };
         }

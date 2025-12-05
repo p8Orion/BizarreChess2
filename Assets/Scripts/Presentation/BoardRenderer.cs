@@ -22,7 +22,7 @@ namespace BizarreChess.Presentation
 
         [Header("Layout")]
         [SerializeField] private float _tileSize = 1f;
-        [SerializeField] private float _tileSpacing = 0.1f;
+        [SerializeField] private float _tileSpacing = 0f;
 
         private Dictionary<int, TileRenderer> _tiles = new Dictionary<int, TileRenderer>();
         private BoardGraph _boardGraph;
@@ -75,12 +75,19 @@ namespace BizarreChess.Presentation
             go.name = $"Tile_{nodeDef.Id}";
             go.transform.SetParent(transform);
             go.transform.localPosition = GetTilePosition(nodeDef.Position);
-            go.transform.localScale = Vector3.one * _tileSize * 0.95f;
+            go.transform.localScale = Vector3.one * _tileSize;
             go.transform.rotation = Quaternion.Euler(90, 0, 0);
 
             var renderer = go.GetComponent<Renderer>();
             renderer.material = new Material(Shader.Find("Unlit/Color"));
             renderer.material.color = GetTileColor(nodeDef, nodeState);
+
+            // Replace MeshCollider with BoxCollider for better raycast detection
+            var meshCollider = go.GetComponent<MeshCollider>();
+            if (meshCollider != null)
+                Object.Destroy(meshCollider);
+            var boxCollider = go.AddComponent<BoxCollider>();
+            boxCollider.size = new Vector3(1f, 1f, 0.1f);
 
             // Add click handler
             var clickHandler = go.AddComponent<TileClickHandler>();
@@ -111,6 +118,8 @@ namespace BizarreChess.Presentation
                     return Color.blue * 0.7f;
                 case NodeType.Unstable:
                     return Color.yellow * 0.7f;
+                case NodeType.Abyss:
+                    return new Color(0.1f, 0.05f, 0.15f); // Dark purple void
             }
 
             // Normal tiles use light/dark pattern

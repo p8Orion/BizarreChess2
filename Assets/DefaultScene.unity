@@ -525,7 +525,7 @@ MonoBehaviour:
   _attackHighlightColor: {r: 1, g: 0.5, b: 0.5, a: 0.5}
   _specialTileColor: {r: 1, g: 0.84, b: 0, a: 0.5}
   _tileSize: 1
-  _tileSpacing: 0.1
+  _tileSpacing: 0
 --- !u!4 &1293083515
 Transform:
   m_ObjectHideFlags: 0

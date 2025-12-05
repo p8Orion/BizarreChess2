@@ -51,7 +51,7 @@ namespace BizarreChess.Core.Graph
             };
         }
 
-        public bool IsPassable => IsActive && CurrentType != NodeType.Impassable && CurrentType != NodeType.Destroyed;
+        public bool IsPassable => IsActive && CurrentType != NodeType.Impassable && CurrentType != NodeType.Destroyed && CurrentType != NodeType.Abyss;
     }
 
     /// <summary>
@@ -65,7 +65,8 @@ namespace BizarreChess.Core.Graph
         Teleport,      // Transports to TeleportTargetId
         Trap,          // Damages or debuffs
         Destroyed,     // Permanently impassable
-        Unstable       // Will be destroyed after X turns
+        Unstable,      // Will be destroyed after X turns
+        Abyss          // Cannot land on, but edges exist (can be jumped over)
     }
 }
 

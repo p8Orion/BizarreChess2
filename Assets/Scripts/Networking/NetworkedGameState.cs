@@ -332,6 +332,97 @@ namespace BizarreChess.Networking
 
         #endregion
 
+        #region Drag Synchronization
+
+        // Events for drag synchronization
+        public System.Action<int> OnDragStarted; // unitId
+        public System.Action<int, Vector3> OnDragUpdated; // unitId, position
+        public System.Action<int, bool> OnDragEnded; // unitId, success
+
+        /// <summary>
+        /// Client notifies server that they started dragging a piece.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void NotifyDragStartServerRpc(int unitId, ServerRpcParams rpcParams = default)
+        {
+            ulong clientId = rpcParams.Receive.SenderClientId;
+            
+            // Validate it's this player's turn and unit
+            if (!_clientToPlayer.TryGetValue(clientId, out int playerId))
+                return;
+            if (playerId != _gameState.CurrentPlayerId)
+                return;
+            
+            var unit = _gameState.GetUnit(unitId);
+            if (unit == null || unit.OwnerId != playerId)
+                return;
+            
+            // Broadcast to other clients
+            BroadcastDragStartClientRpc(unitId, clientId);
+        }
+
+        /// <summary>
+        /// Client sends updated drag position to server.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void UpdateDragPositionServerRpc(int unitId, Vector3 position, ServerRpcParams rpcParams = default)
+        {
+            ulong clientId = rpcParams.Receive.SenderClientId;
+            
+            // Basic validation
+            if (!_clientToPlayer.TryGetValue(clientId, out int playerId))
+                return;
+            if (playerId != _gameState.CurrentPlayerId)
+                return;
+            
+            // Broadcast to other clients
+            BroadcastDragPositionClientRpc(unitId, position, clientId);
+        }
+
+        /// <summary>
+        /// Client notifies server that they ended dragging.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void NotifyDragEndServerRpc(int unitId, bool success, ServerRpcParams rpcParams = default)
+        {
+            ulong clientId = rpcParams.Receive.SenderClientId;
+            
+            // Broadcast to other clients
+            BroadcastDragEndClientRpc(unitId, success, clientId);
+        }
+
+        [ClientRpc]
+        private void BroadcastDragStartClientRpc(int unitId, ulong senderClientId)
+        {
+            // Don't notify the sender
+            if (NetworkManager.Singleton.LocalClientId == senderClientId)
+                return;
+            
+            OnDragStarted?.Invoke(unitId);
+        }
+
+        [ClientRpc]
+        private void BroadcastDragPositionClientRpc(int unitId, Vector3 position, ulong senderClientId)
+        {
+            // Don't notify the sender
+            if (NetworkManager.Singleton.LocalClientId == senderClientId)
+                return;
+            
+            OnDragUpdated?.Invoke(unitId, position);
+        }
+
+        [ClientRpc]
+        private void BroadcastDragEndClientRpc(int unitId, bool success, ulong senderClientId)
+        {
+            // Don't notify the sender
+            if (NetworkManager.Singleton.LocalClientId == senderClientId)
+                return;
+            
+            OnDragEnded?.Invoke(unitId, success);
+        }
+
+        #endregion
+
         #region Server -> Client Broadcasts
 
         [ClientRpc]

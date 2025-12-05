@@ -1,0 +1,25 @@
+{
+  "armyId": "camel_army",
+  "displayName": "Camel Army",
+  "description": "Army with Camels instead of Knights",
+  "requiresKing": true,
+  "pieces": [
+    { "piece": "Rook", "x": 0, "y": 0 },
+    { "piece": "Camel", "x": 1, "y": 0 },
+    { "piece": "Bishop", "x": 2, "y": 0 },
+    { "piece": "Queen", "x": 3, "y": 0 },
+    { "piece": "King", "x": 4, "y": 0 },
+    { "piece": "Bishop", "x": 5, "y": 0 },
+    { "piece": "Camel", "x": 6, "y": 0 },
+    { "piece": "Rook", "x": 7, "y": 0 },
+    { "piece": "Pawn", "x": 0, "y": 1 },
+    { "piece": "Pawn", "x": 1, "y": 1 },
+    { "piece": "Pawn", "x": 2, "y": 1 },
+    { "piece": "Pawn", "x": 3, "y": 1 },
+    { "piece": "Pawn", "x": 4, "y": 1 },
+    { "piece": "Pawn", "x": 5, "y": 1 },
+    { "piece": "Pawn", "x": 6, "y": 1 },
+    { "piece": "Pawn", "x": 7, "y": 1 }
+  ]
+}
+
