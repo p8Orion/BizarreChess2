@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using UnityEngine;
 using BizarreChess.Core.Graph;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
+using BizarreChess.Core.Player;
 
 namespace BizarreChess.Core.Factories
 {
@@ -23,16 +25,20 @@ namespace BizarreChess.Core.Factories
             var board = BoardFactory.CreateBoardWithAbyss(
                 size: 10,              // Tablero 8x8
                 abyssPercentage: 15,  // 15% de los tiles elegibles serán abismo
-                seed: 42              // Seed opcional para reproducibilidad (-1 = random)
+                seed: -1             // Seed opcional para reproducibilidad (-1 = random)
             );
             var classicArmy = ArmyFactory.CreateClassicArmy();
             var camelArmy = ArmyFactory.Get("camel_army");
 
-            return new ChessSetup
-            {
+            var setup = new ChessSetup
+            {   
                 Board = board,
-                PlayerArmies = new List<ArmyDefinition> { classicArmy, camelArmy }
+                PlayerArmies = new List<ArmyDefinition> { classicArmy, camelArmy },
+                PlayerColorSchemes = new List<PlayerColorScheme> { new PlayerColorScheme(new Color(0.75f, 0, 0), new Color(0.75f, 0f, 0f)), PlayerColors.Get(1) }
             };
+            
+            setup.ApplyColors();
+            return setup;
         }
 
         /// <summary>
@@ -40,9 +46,11 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         /// <param name="board">Custom board, or null for classic 8x8</param>
         /// <param name="playerArmies">Armies for each player, or null for classic army for all</param>
+        /// <param name="playerColors">Color schemes for each player, or null for defaults</param>
         public static ChessSetup CreateSetup(
             BoardDefinition board = null,
-            List<ArmyDefinition> playerArmies = null)
+            List<ArmyDefinition> playerArmies = null,
+            List<PlayerColorScheme> playerColors = null)
         {
             board ??= BoardFactory.CreateClassicBoard();
             
@@ -52,11 +60,35 @@ namespace BizarreChess.Core.Factories
                 playerArmies = new List<ArmyDefinition> { defaultArmy, defaultArmy };
             }
 
-            return new ChessSetup
+            var setup = new ChessSetup
             {
                 Board = board,
-                PlayerArmies = playerArmies
+                PlayerArmies = playerArmies,
+                PlayerColorSchemes = playerColors
             };
+            
+            // Apply colors immediately
+            setup.ApplyColors();
+            
+            return setup;
+        }
+
+        /// <summary>
+        /// Create setup with custom player colors.
+        /// </summary>
+        public static ChessSetup CreateSetup(
+            Color player1Primary, Color player1Secondary,
+            Color player2Primary, Color player2Secondary,
+            BoardDefinition board = null,
+            List<ArmyDefinition> playerArmies = null)
+        {
+            var colors = new List<PlayerColorScheme>
+            {
+                new PlayerColorScheme(player1Primary, player1Secondary),
+                new PlayerColorScheme(player2Primary, player2Secondary)
+            };
+            
+            return CreateSetup(board, playerArmies, colors);
         }
 
         #endregion
@@ -181,6 +213,11 @@ namespace BizarreChess.Core.Factories
         /// Armies for each player. Index 0 = Player 1, Index 1 = Player 2, etc.
         /// </summary>
         public List<ArmyDefinition> PlayerArmies;
+        
+        /// <summary>
+        /// Color schemes for each player. If null, uses defaults.
+        /// </summary>
+        public List<PlayerColorScheme> PlayerColorSchemes;
 
         /// <summary>
         /// Get all piece definitions used in this setup (from PiecesFactory cache).
@@ -203,6 +240,39 @@ namespace BizarreChess.Core.Factories
                 return PlayerArmies[0];
             
             return PlayerArmies[playerIndex];
+        }
+        
+        /// <summary>
+        /// Get color scheme for a specific player.
+        /// </summary>
+        public PlayerColorScheme GetColorScheme(int playerIndex)
+        {
+            if (PlayerColorSchemes == null || PlayerColorSchemes.Count == 0)
+                return PlayerColors.Get(playerIndex);
+            
+            if (playerIndex >= PlayerColorSchemes.Count)
+                return PlayerColorSchemes[0];
+            
+            return PlayerColorSchemes[playerIndex];
+        }
+        
+        /// <summary>
+        /// Apply this setup's color schemes to the global PlayerColors.
+        /// Call this before rendering the game.
+        /// </summary>
+        public void ApplyColors()
+        {
+            if (PlayerColorSchemes == null || PlayerColorSchemes.Count == 0)
+            {
+                PlayerColors.ResetToDefaults();
+                return;
+            }
+            
+            for (int i = 0; i < PlayerColorSchemes.Count; i++)
+            {
+                var scheme = PlayerColorSchemes[i];
+                PlayerColors.Set(i, scheme.PrimaryColor, scheme.SecondaryColor);
+            }
         }
     }
 }

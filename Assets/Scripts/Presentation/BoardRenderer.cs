@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using BizarreChess.Core.Graph;
+using BizarreChess.Core.Player;
 
 namespace BizarreChess.Presentation
 {
@@ -18,12 +19,7 @@ namespace BizarreChess.Presentation
         [SerializeField] private Color _darkTileColor = new Color(0.55f, 0.36f, 0.24f);
         [SerializeField] private Color _attackHighlightColor = new Color(1f, 0.5f, 0.5f, 0.5f);
         [SerializeField] private Color _specialTileColor = new Color(1f, 0.84f, 0f, 0.5f);
-        
-        [Header("Player Highlight Colors")]
-        [SerializeField] private Color _player1SelectColor = new Color(1f, 0.85f, 0.3f, 0.5f);   // Golden/yellow
-        [SerializeField] private Color _player1HoverColor = new Color(1f, 0.85f, 0.3f, 0.25f);   // Golden/yellow tenue
-        [SerializeField] private Color _player2SelectColor = new Color(0.6f, 0.3f, 0.9f, 0.5f);  // Purple/violet
-        [SerializeField] private Color _player2HoverColor = new Color(0.6f, 0.3f, 0.9f, 0.25f);  // Purple/violet tenue
+        // Player highlight colors are now derived from PlayerColors in ChessFactory
 
         [Header("Layout")]
         [SerializeField] private float _tileSize = 1f;
@@ -199,12 +195,12 @@ namespace BizarreChess.Presentation
 
         private Color GetSelectionColor(int ownerId)
         {
-            return ownerId == 0 ? _player1SelectColor : _player2SelectColor;
+            return PlayerColors.Get(ownerId).SelectHighlight;
         }
 
         private Color GetHoverColor(int ownerId)
         {
-            return ownerId == 0 ? _player1HoverColor : _player2HoverColor;
+            return PlayerColors.Get(ownerId).HoverHighlight;
         }
 
         /// <summary>

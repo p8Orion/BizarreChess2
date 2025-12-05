@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using BizarreChess.Core.Units;
+using BizarreChess.Core.Player;
 
 namespace BizarreChess.Presentation
 {
@@ -18,12 +19,7 @@ namespace BizarreChess.Presentation
         [SerializeField] private GameObject _healthBar;
         [SerializeField] private Transform _healthFill;
 
-        [Header("Player Colors")]
-        [SerializeField] private Color _player1PrimaryColor = new Color(0.95f, 0.92f, 0.85f); // Ivory
-        [SerializeField] private Color _player1SecondaryColor = new Color(0.85f, 0.82f, 0.75f); // Darker ivory
-        [SerializeField] private Color _player2PrimaryColor = new Color(0.15f, 0.12f, 0.10f); // Dark wood
-        [SerializeField] private Color _player2SecondaryColor = new Color(0.25f, 0.22f, 0.20f); // Lighter dark wood
-        [SerializeField] private Color _selectedColor = new Color(1f, 1f, 0f, 0.5f);
+        [Header("Colors (read from PlayerColors)")]
         [SerializeField] private Color _damagedColor = Color.red;
 
         [Header("Animation")]
@@ -93,9 +89,10 @@ namespace BizarreChess.Presentation
 
         private void UpdateVisuals()
         {
-            // Get player colors
-            Color primaryColor = _currentState.OwnerId == 0 ? _player1PrimaryColor : _player2PrimaryColor;
-            Color secondaryColor = _currentState.OwnerId == 0 ? _player1SecondaryColor : _player2SecondaryColor;
+            // Get player colors from centralized PlayerColors
+            var colorScheme = PlayerColors.Get(_currentState.OwnerId);
+            Color primaryColor = colorScheme.PrimaryColor;
+            Color secondaryColor = colorScheme.SecondaryColor;
             Color outlineColor = _currentState.OwnerId == 0 ? Color.black : Color.white;
 
             // 3D mesh rendering (Token2D or DisplacementMap)
@@ -154,7 +151,7 @@ namespace BizarreChess.Presentation
             if (_selectionIndicator != null)
             {
                 _selectionIndicator.enabled = _isSelected;
-                _selectionIndicator.color = _selectedColor;
+                _selectionIndicator.color = PlayerColors.Get(_currentState.OwnerId).SelectHighlight;
             }
 
             // Dead units fade out
@@ -184,9 +181,9 @@ namespace BizarreChess.Presentation
                 if (selected)
                 {
                     _meshRenderer.material.EnableKeyword("_EMISSION");
-                    Color emissionColor = _currentState.OwnerId == 0 
-                        ? new Color(1f, 0.9f, 0.5f) * 0.5f  // Gold glow for white
-                        : new Color(0.5f, 0.3f, 1f) * 0.5f; // Purple glow for black
+                    // Use selection color from centralized PlayerColors
+                    var colorScheme = PlayerColors.Get(_currentState.OwnerId);
+                    Color emissionColor = colorScheme.SelectHighlight * 0.8f;
                     _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
                 }
                 else
