@@ -27,6 +27,9 @@ namespace BizarreChess.Presentation
         private Vector2 _dragStartScreenPos;
         private Vector3 _dragStartWorldPos;
         private int _draggedUnitOriginalNode;
+        
+        // Hover state
+        private UnitRenderer _hoveredUnit;
 
         private void Start()
         {
@@ -40,7 +43,17 @@ namespace BizarreChess.Presentation
         private void Update()
         {
             if (IsPointerOverUI())
+            {
+                // Clear hover when over UI
+                UpdateHover(null);
                 return;
+            }
+            
+            // Update hover state (always, even during drag)
+            if (!_isDragging)
+            {
+                UpdateHoverDetection();
+            }
             
             // Handle drag and drop
             if (IsPointerPressedThisFrame())
@@ -54,6 +67,40 @@ namespace BizarreChess.Presentation
             else if (IsPointerReleasedThisFrame())
             {
                 HandlePointerUp();
+            }
+        }
+        
+        private void UpdateHoverDetection()
+        {
+            Vector2 pointerPos = GetPointerPosition();
+            Ray ray = _camera.ScreenPointToRay(pointerPos);
+            
+            UnitRenderer hitUnit = null;
+            if (Physics.Raycast(ray, out RaycastHit hit, 100f, _interactableLayers))
+            {
+                hitUnit = hit.collider.GetComponent<UnitRenderer>();
+            }
+            
+            UpdateHover(hitUnit);
+        }
+        
+        private void UpdateHover(UnitRenderer unit)
+        {
+            if (unit == _hoveredUnit)
+                return;
+            
+            // Notify exit from previous hover
+            if (_hoveredUnit != null)
+            {
+                _gameManager?.OnUnitHoverExit(_hoveredUnit.UnitId);
+            }
+            
+            _hoveredUnit = unit;
+            
+            // Notify enter to new hover
+            if (_hoveredUnit != null)
+            {
+                _gameManager?.OnUnitHoverEnter(_hoveredUnit.UnitId);
             }
         }
 

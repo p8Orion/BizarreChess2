@@ -106,6 +106,10 @@ namespace BizarreChess
         private int? _selectedUnitId;
         private List<int> _validMoves = new List<int>();
         
+        // Hover state
+        private int? _hoveredUnitId;
+        private List<int> _hoverMoves = new List<int>();
+        
         // Drag state
         private bool _isDragging;
         private int? _draggingUnitId;
@@ -569,28 +573,39 @@ namespace BizarreChess
 
             _selectedUnitId = unitId;
 
+            // Get the unit to know its owner
+            int ownerId = 0;
+            if (_offlineMode)
+            {
+                var unit = _gameState.GetUnit(unitId);
+                if (unit != null)
+                {
+                    ownerId = unit.OwnerId;
+                    if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
+                    {
+                        _validMoves = _moveValidator.GetValidMovesForUnit(unit, def, _gameState.Units);
+                    }
+                }
+            }
+            else
+            {
+                var units = _networkedGameState.GetAllUnits();
+                var unit = units.Find(u => u.UnitId == unitId);
+                if (unit != null)
+                {
+                    ownerId = unit.OwnerId;
+                }
+                _validMoves = _networkedGameState.GetValidMovesForUnit(unitId);
+            }
+
             // Highlight unit
             if (_unitRenderers.TryGetValue(unitId, out var renderer))
             {
                 renderer.SetSelected(true);
             }
 
-            // Get valid moves
-            if (_offlineMode)
-            {
-                var unit = _gameState.GetUnit(unitId);
-                if (unit != null && _unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
-                {
-                    _validMoves = _moveValidator.GetValidMovesForUnit(unit, def, _gameState.Units);
-                }
-            }
-            else
-            {
-                _validMoves = _networkedGameState.GetValidMovesForUnit(unitId);
-            }
-
-            // Highlight valid moves
-            _boardRenderer.HighlightValidMoves(_validMoves);
+            // Highlight valid moves with owner color
+            _boardRenderer?.HighlightValidMoves(_validMoves, ownerId);
 
             OnUnitSelected?.Invoke(unitId);
         }
@@ -610,6 +625,64 @@ namespace BizarreChess
             _boardRenderer?.ClearHighlights();
 
             OnSelectionCleared?.Invoke();
+        }
+
+        #endregion
+
+        #region Hover Preview
+
+        /// <summary>
+        /// Called when mouse enters a unit (any unit, not just own pieces).
+        /// Shows preview of valid moves.
+        /// </summary>
+        public void OnUnitHoverEnter(int unitId)
+        {
+            // Don't show hover preview for the currently selected unit
+            if (_selectedUnitId.HasValue && _selectedUnitId.Value == unitId)
+                return;
+            
+            _hoveredUnitId = unitId;
+            
+            // Get unit info and calculate valid moves
+            int ownerId = 0;
+            if (_offlineMode)
+            {
+                var unit = _gameState?.GetUnit(unitId);
+                if (unit != null)
+                {
+                    ownerId = unit.OwnerId;
+                    if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
+                    {
+                        _hoverMoves = _moveValidator.GetValidMovesForUnit(unit, def, _gameState.Units);
+                    }
+                }
+            }
+            else
+            {
+                var units = _networkedGameState?.GetAllUnits();
+                var unit = units?.Find(u => u.UnitId == unitId);
+                if (unit != null)
+                {
+                    ownerId = unit.OwnerId;
+                }
+                _hoverMoves = _networkedGameState?.GetValidMovesForUnit(unitId) ?? new List<int>();
+            }
+            
+            // Show hover highlights (more transparent than selection)
+            _boardRenderer?.HighlightHoverMoves(_hoverMoves, ownerId);
+        }
+
+        /// <summary>
+        /// Called when mouse exits a unit.
+        /// </summary>
+        public void OnUnitHoverExit(int unitId)
+        {
+            if (_hoveredUnitId.HasValue && _hoveredUnitId.Value == unitId)
+            {
+                _hoveredUnitId = null;
+                _hoverMoves.Clear();
+                _boardRenderer?.ClearHoverHighlights();
+            }
         }
 
         #endregion

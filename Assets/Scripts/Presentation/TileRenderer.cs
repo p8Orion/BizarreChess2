@@ -5,6 +5,7 @@ namespace BizarreChess.Presentation
 {
     /// <summary>
     /// Renders a single tile on the board.
+    /// Supports two layers of highlight: selection (opaque) and hover (transparent).
     /// </summary>
     public class TileRenderer : MonoBehaviour
     {
@@ -18,6 +19,12 @@ namespace BizarreChess.Presentation
         private Color _baseColor;
         private Renderer _placeholderRenderer;
         private bool _isPlaceholder;
+        
+        // Dual highlight state
+        private bool _isSelectionHighlighted;
+        private Color _selectionColor;
+        private bool _isHoverHighlighted;
+        private Color _hoverColor;
 
         public void Initialize(NodeDefinition nodeDef, NodeState nodeState, Color color, float size)
         {
@@ -72,24 +79,74 @@ namespace BizarreChess.Presentation
             UpdateVisualForNodeType(state);
         }
 
+        /// <summary>
+        /// Set selection highlight (stronger, for selected piece moves).
+        /// </summary>
+        public void SetSelectionHighlight(bool highlighted, Color highlightColor)
+        {
+            _isSelectionHighlighted = highlighted;
+            _selectionColor = highlightColor;
+            UpdateCombinedHighlight();
+        }
+
+        /// <summary>
+        /// Set hover highlight (weaker, for preview on hover).
+        /// </summary>
+        public void SetHoverHighlight(bool highlighted, Color highlightColor)
+        {
+            _isHoverHighlighted = highlighted;
+            _hoverColor = highlightColor;
+            UpdateCombinedHighlight();
+        }
+
+        /// <summary>
+        /// Legacy method for compatibility.
+        /// </summary>
         public void SetHighlight(bool highlighted, Color highlightColor)
         {
+            SetSelectionHighlight(highlighted, highlightColor);
+        }
+
+        private void UpdateCombinedHighlight()
+        {
+            // Priority: Selection > Hover > Base
+            // But we want to show both if they're different tiles
+            // For the same tile, selection takes precedence visually but we blend
+            
+            Color finalColor = _baseColor;
+            bool anyHighlight = _isSelectionHighlighted || _isHoverHighlighted;
+            
+            if (_isSelectionHighlighted && _isHoverHighlighted)
+            {
+                // Both active - blend selection color (stronger) with hover (weaker)
+                // Selection takes visual priority
+                finalColor = Color.Lerp(_baseColor, _selectionColor, 0.6f);
+            }
+            else if (_isSelectionHighlighted)
+            {
+                finalColor = Color.Lerp(_baseColor, _selectionColor, 0.5f);
+            }
+            else if (_isHoverHighlighted)
+            {
+                finalColor = Color.Lerp(_baseColor, _hoverColor, 0.35f);
+            }
+            
+            // Apply to renderer
             if (_isPlaceholder && _placeholderRenderer != null)
             {
-                _placeholderRenderer.material.color = highlighted 
-                    ? Color.Lerp(_baseColor, highlightColor, 0.5f) 
-                    : _baseColor;
+                _placeholderRenderer.material.color = finalColor;
             }
             else if (_highlightRenderer != null)
             {
-                _highlightRenderer.enabled = highlighted;
-                _highlightRenderer.color = highlightColor;
+                _highlightRenderer.enabled = anyHighlight;
+                if (anyHighlight)
+                {
+                    _highlightRenderer.color = _isSelectionHighlighted ? _selectionColor : _hoverColor;
+                }
             }
             else if (_spriteRenderer != null)
             {
-                _spriteRenderer.color = highlighted 
-                    ? Color.Lerp(_baseColor, highlightColor, 0.5f) 
-                    : _baseColor;
+                _spriteRenderer.color = finalColor;
             }
         }
 

@@ -16,9 +16,14 @@ namespace BizarreChess.Presentation
         [Header("Colors")]
         [SerializeField] private Color _lightTileColor = new Color(0.93f, 0.86f, 0.70f);
         [SerializeField] private Color _darkTileColor = new Color(0.55f, 0.36f, 0.24f);
-        [SerializeField] private Color _highlightColor = new Color(0.5f, 1f, 0.5f, 0.5f);
         [SerializeField] private Color _attackHighlightColor = new Color(1f, 0.5f, 0.5f, 0.5f);
         [SerializeField] private Color _specialTileColor = new Color(1f, 0.84f, 0f, 0.5f);
+        
+        [Header("Player Highlight Colors")]
+        [SerializeField] private Color _player1SelectColor = new Color(1f, 0.85f, 0.3f, 0.5f);   // Golden/yellow
+        [SerializeField] private Color _player1HoverColor = new Color(1f, 0.85f, 0.3f, 0.25f);   // Golden/yellow tenue
+        [SerializeField] private Color _player2SelectColor = new Color(0.6f, 0.3f, 0.9f, 0.5f);  // Purple/violet
+        [SerializeField] private Color _player2HoverColor = new Color(0.6f, 0.3f, 0.9f, 0.25f);  // Purple/violet tenue
 
         [Header("Layout")]
         [SerializeField] private float _tileSize = 1f;
@@ -28,6 +33,7 @@ namespace BizarreChess.Presentation
         private BoardGraph _boardGraph;
         private HashSet<int> _highlightedMoves = new HashSet<int>();
         private HashSet<int> _highlightedAttacks = new HashSet<int>();
+        private HashSet<int> _highlightedHover = new HashSet<int>();
 
         public System.Action<int> OnTileClicked;
 
@@ -184,24 +190,37 @@ namespace BizarreChess.Presentation
             _tiles.Clear();
             _highlightedMoves.Clear();
             _highlightedAttacks.Clear();
+            _highlightedHover.Clear();
         }
 
         #endregion
 
         #region Highlighting
 
+        private Color GetSelectionColor(int ownerId)
+        {
+            return ownerId == 0 ? _player1SelectColor : _player2SelectColor;
+        }
+
+        private Color GetHoverColor(int ownerId)
+        {
+            return ownerId == 0 ? _player1HoverColor : _player2HoverColor;
+        }
+
         /// <summary>
-        /// Highlight valid move targets.
+        /// Highlight valid move targets with player-specific color.
         /// </summary>
-        public void HighlightValidMoves(List<int> nodeIds)
+        public void HighlightValidMoves(List<int> nodeIds, int ownerId = 0)
         {
             ClearHighlights();
+
+            Color highlightColor = GetSelectionColor(ownerId);
 
             foreach (var nodeId in nodeIds)
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetHighlight(true, _highlightColor);
+                    tile.SetSelectionHighlight(true, highlightColor);
                     _highlightedMoves.Add(nodeId);
                 }
             }
@@ -216,14 +235,33 @@ namespace BizarreChess.Presentation
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetHighlight(true, _attackHighlightColor);
+                    tile.SetSelectionHighlight(true, _attackHighlightColor);
                     _highlightedAttacks.Add(nodeId);
                 }
             }
         }
 
         /// <summary>
-        /// Clear all highlights.
+        /// Highlight hover preview moves (more transparent, coexists with selection).
+        /// </summary>
+        public void HighlightHoverMoves(List<int> nodeIds, int ownerId = 0)
+        {
+            ClearHoverHighlights();
+
+            Color hoverColor = GetHoverColor(ownerId);
+
+            foreach (var nodeId in nodeIds)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetHoverHighlight(true, hoverColor);
+                    _highlightedHover.Add(nodeId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clear selection highlights only.
         /// </summary>
         public void ClearHighlights()
         {
@@ -231,7 +269,7 @@ namespace BizarreChess.Presentation
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetHighlight(false, Color.white);
+                    tile.SetSelectionHighlight(false, Color.white);
                 }
             }
             _highlightedMoves.Clear();
@@ -240,10 +278,25 @@ namespace BizarreChess.Presentation
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetHighlight(false, Color.white);
+                    tile.SetSelectionHighlight(false, Color.white);
                 }
             }
             _highlightedAttacks.Clear();
+        }
+
+        /// <summary>
+        /// Clear hover highlights only.
+        /// </summary>
+        public void ClearHoverHighlights()
+        {
+            foreach (var nodeId in _highlightedHover)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetHoverHighlight(false, Color.white);
+                }
+            }
+            _highlightedHover.Clear();
         }
 
         #endregion
