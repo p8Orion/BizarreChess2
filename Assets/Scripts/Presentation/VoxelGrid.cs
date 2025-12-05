@@ -117,65 +117,12 @@ namespace BizarreChess.Presentation
                         float texX = normalizedRadius * (texWidth - 1);
                         int texXInt = Mathf.Clamp(Mathf.RoundToInt(texX), 0, texWidth - 1);
 
-                        // Sample the profile texture
+                        // Sample the profile texture at this radius/height
                         Color pixel = profile.GetPixel(texXInt, texYInt);
-                        float alpha = pixel.a;
-
-                        // Check if this voxel should be solid
-                        // The voxel is solid if the pixel at this radius/height is opaque
-                        bool isSolid = alpha >= alphaThreshold;
-
-                        // For revolution: we need to check if this point is within the profile
-                        // The profile defines: for each height Y, pixels from firstOpaque to lastOpaque are solid
-                        // So we scan the row to find the inner and outer edges
-                        int innerEdge = -1;
-                        int outerEdge = -1;
+                        bool isSolid = pixel.a >= alphaThreshold;
                         
-                        for (int tx = 0; tx < texWidth; tx++)
-                        {
-                            if (profile.GetPixel(tx, texYInt).a >= alphaThreshold)
-                            {
-                                if (innerEdge < 0) innerEdge = tx;
-                                outerEdge = tx;
-                            }
-                        }
-
-                        if (innerEdge >= 0 && outerEdge >= 0)
-                        {
-                            // This height has solid pixels
-                            // The voxel is solid if its radius falls within [innerEdge, outerEdge]
-                            float innerRadius = (innerEdge / (float)(texWidth - 1)) * maxRadius;
-                            float outerRadius = ((outerEdge + 1) / (float)(texWidth - 1)) * maxRadius;
-
-                            isSolid = radius >= innerRadius && radius <= outerRadius;
-                            
-                            // Calculate density for smooth interpolation
-                            if (isSolid)
-                            {
-                                // Distance to nearest edge (for gradient)
-                                float distToInner = radius - innerRadius;
-                                float distToOuter = outerRadius - radius;
-                                float minDist = Mathf.Min(distToInner, distToOuter);
-                                _density[x, y, z] = Mathf.Clamp01(minDist / VoxelSize + 0.5f);
-                            }
-                            else
-                            {
-                                // Outside: calculate how far outside
-                                float distOutside;
-                                if (radius < innerRadius)
-                                    distOutside = innerRadius - radius;
-                                else
-                                    distOutside = radius - outerRadius;
-                                _density[x, y, z] = Mathf.Clamp01(0.5f - distOutside / VoxelSize);
-                            }
-                        }
-                        else
-                        {
-                            // No solid pixels at this height
-                            isSolid = false;
-                            _density[x, y, z] = 0f;
-                        }
-
+                        // Use alpha directly as density for smooth marching cubes interpolation
+                        _density[x, y, z] = pixel.a;
                         _data[x, y, z] = isSolid;
                     }
                 }
