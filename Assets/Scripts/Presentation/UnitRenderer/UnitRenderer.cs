@@ -376,18 +376,14 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// </summary>
         private void ApplyTextureToMaterial(Material mat, PlayerColorScheme colorScheme)
         {
-            // Apply texture if available
             if (colorScheme.PieceTexture != null)
             {
                 mat.mainTexture = colorScheme.PieceTexture;
                 mat.mainTextureScale = new Vector2(colorScheme.TextureTiling, colorScheme.TextureTiling);
-                
-                // Tint grayscale texture with player color
                 mat.color = colorScheme.PrimaryColor;
             }
             else
             {
-                // No texture - use solid color
                 mat.mainTexture = null;
                 mat.color = colorScheme.PrimaryColor;
             }

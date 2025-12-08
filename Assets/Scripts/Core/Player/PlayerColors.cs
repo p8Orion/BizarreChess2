@@ -15,9 +15,9 @@ namespace BizarreChess.Core.Player
         public Color HoverHighlight;    // Hover highlight (derived, more transparent)
         
         // Texture settings
-        public Texture2D PieceTexture;  // Main texture for pieces (albedo)
-        public float TextureTiling = 2f; // How much the texture tiles
-        public float Smoothness = 0.5f;  // Material smoothness
+        public Texture2D PieceTexture;      // Main texture for pieces (albedo)
+        public float TextureTiling = 2f;    // How much the texture tiles
+        public float Smoothness = 0.5f;     // Material smoothness
 
         public PlayerColorScheme(Color primary, Color secondary, Texture2D texture = null)
         {

@@ -21,8 +21,8 @@ namespace BizarreChess.Presentation.UnitRenderer
     public static class RevolutionMeshGenerator
     {
         public const int DEFAULT_RESOLUTION = 64;
-        public const float DEFAULT_SIMPLIFICATION = 0.9f;
-        public const float DEFAULT_AGGRESSIVENESS = 0.9f;  // 0=conservative, 1=very aggressive
+        public const float DEFAULT_SIMPLIFICATION = 0.5f;  // 85% reduction (keeps 15% of triangles)
+        public const float DEFAULT_AGGRESSIVENESS = 0.5f;   // Moderate - preserves details better
         public const float DEFAULT_HEIGHT = 1.5f;
         public const float DEFAULT_SIZE = 1.0f;
 
@@ -247,16 +247,14 @@ namespace BizarreChess.Presentation.UnitRenderer
             {
                 mat.mainTexture = colorScheme.PieceTexture;
                 mat.mainTextureScale = new Vector2(colorScheme.TextureTiling, colorScheme.TextureTiling);
-                mat.color = colorScheme.PrimaryColor; // Tint grayscale texture with player color
-                Debug.Log($"[RevolutionMeshGenerator] Applied texture: {colorScheme.PieceTexture.name}, tint: {colorScheme.PrimaryColor}");
+                mat.color = colorScheme.PrimaryColor;
             }
             else
             {
                 mat.mainTexture = null;
                 mat.color = colorScheme.PrimaryColor;
-                Debug.Log($"[RevolutionMeshGenerator] No texture, using solid color: {colorScheme.PrimaryColor}");
             }
-            
+
             mat.SetFloat("_Smoothness", colorScheme.Smoothness);
         }
     }

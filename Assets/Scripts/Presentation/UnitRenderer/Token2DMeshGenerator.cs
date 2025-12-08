@@ -177,7 +177,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
             else if (colorScheme.PieceTexture != null)
             {
-                // No face texture - use player's material texture with color tint
+                // No face texture - use player's material texture
                 mat.mainTexture = colorScheme.PieceTexture;
                 mat.mainTextureScale = new Vector2(colorScheme.TextureTiling, colorScheme.TextureTiling);
                 mat.color = colorScheme.PrimaryColor;

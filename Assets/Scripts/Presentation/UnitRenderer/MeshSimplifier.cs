@@ -14,9 +14,9 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// </summary>
         /// <param name="mesh">Mesh to simplify</param>
         /// <param name="targetReduction">Target reduction ratio (0.9 = reduce to 10% of original)</param>
-        /// <param name="aggressiveness">How aggressive to be (0=conservative, 1=very aggressive). Default 0.9</param>
+        /// <param name="aggressiveness">How aggressive to be (0=conservative, 1=very aggressive). Default 0.5</param>
         /// <returns>Simplified mesh</returns>
-        public static Mesh Simplify(Mesh mesh, float targetReduction = 0.9f, float aggressiveness = 0.9f)
+        public static Mesh Simplify(Mesh mesh, float targetReduction = 0.9f, float aggressiveness = 0.5f)
         {
             targetReduction = Mathf.Clamp01(targetReduction);
             aggressiveness = Mathf.Clamp01(aggressiveness);
@@ -29,8 +29,9 @@ namespace BizarreChess.Presentation.UnitRenderer
 
             int targetTriCount = Mathf.Max(4, Mathf.RoundToInt(triangles.Count / 3 * (1f - targetReduction)));
             
-            // Flip threshold: ranges from -0.5 (conservative) to -0.99 (very aggressive)
-            float flipThreshold = Mathf.Lerp(-0.5f, -0.99f, aggressiveness);
+            // Flip threshold: ranges from 0.2 (very conservative, ~78°) to -0.8 (aggressive, ~143°)
+            // Lower values allow more normal deviation before rejecting a collapse
+            float flipThreshold = Mathf.Lerp(0.2f, -0.8f, aggressiveness);
             
             var simplifier = new QEMSimplifier(vertices, triangles, flipThreshold);
             simplifier.Simplify(targetTriCount);
@@ -168,13 +169,15 @@ namespace BizarreChess.Presentation.UnitRenderer
                 // Add edge length penalty to preserve shape
                 float edgeLength = (p1 - p0).magnitude;
                 float lengthPenalty = edgeLength * 0.01f;
-                
+
                 // Penalty for edges that cross different heights (preserve horizontal bands)
-                // This makes the simplifier prefer collapsing horizontal edges over vertical ones
                 float heightDiff = Mathf.Abs(p1.y - p0.y);
                 float heightPenalty = heightDiff * 0.5f;
+                
+                // Penalty for high-curvature edges (preserve sharp features like crown cross)
+                float curvaturePenalty = ComputeCurvaturePenalty(v0, v1);
 
-                float totalPenalty = lengthPenalty + heightPenalty;
+                float totalPenalty = lengthPenalty + heightPenalty + curvaturePenalty;
 
                 if (costMid <= cost0 && costMid <= cost1)
                 {
@@ -191,6 +194,52 @@ namespace BizarreChess.Presentation.UnitRenderer
                     optimalPos = p1;
                     return cost1 + totalPenalty;
                 }
+            }
+            
+            /// <summary>
+            /// Compute penalty for collapsing edges on sharp features.
+            /// High curvature = high penalty = preserve the edge.
+            /// </summary>
+            private float ComputeCurvaturePenalty(int v0, int v1)
+            {
+                // Get triangles sharing this edge
+                var sharedTris = new List<int>();
+                foreach (int t in _vertexTriangles[v0])
+                {
+                    if (_deletedTriangles.Contains(t)) continue;
+                    int i0 = _triangles[t * 3];
+                    int i1 = _triangles[t * 3 + 1];
+                    int i2 = _triangles[t * 3 + 2];
+                    
+                    bool hasV1 = (i0 == v1 || i1 == v1 || i2 == v1);
+                    if (hasV1) sharedTris.Add(t);
+                }
+                
+                // If edge is shared by exactly 2 triangles, compute dihedral angle
+                if (sharedTris.Count == 2)
+                {
+                    Vector3 n0 = GetTriangleNormal(sharedTris[0]);
+                    Vector3 n1 = GetTriangleNormal(sharedTris[1]);
+                    
+                    if (n0.sqrMagnitude > 0.0001f && n1.sqrMagnitude > 0.0001f)
+                    {
+                        n0.Normalize();
+                        n1.Normalize();
+                        
+                        float dot = Vector3.Dot(n0, n1);
+                        // dot = 1 means flat (no penalty), dot = -1 means 180° fold (max penalty)
+                        // Penalty increases as angle increases
+                        float angleFactor = 1f - dot; // 0 for flat, 2 for 180°
+                        return angleFactor * 2f; // Scale penalty
+                    }
+                }
+                else if (sharedTris.Count == 1)
+                {
+                    // Boundary edge - high penalty to preserve silhouette
+                    return 5f;
+                }
+                
+                return 0f;
             }
 
             private float EvaluateQuadric(Matrix4x4 q, Vector3 v)
