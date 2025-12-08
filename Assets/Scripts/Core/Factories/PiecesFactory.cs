@@ -35,7 +35,7 @@ namespace BizarreChess.Core.Factories
         public static Dictionary<string, UnitDefinition> GetAll()
         {
             // Ensure all pieces are cached
-            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn" };
+            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn", "Lancer" };
             foreach (var name in allNames)
                 Get(name);
 
@@ -65,6 +65,7 @@ namespace BizarreChess.Core.Factories
                 "Camel" => CreateCamelDefinition(),
                 "Crossbowman" => CreateCrossbowmanDefinition(),
                 "Pawn" => CreatePawnDefinition(),
+                "Lancer" => CreateLancerDefinition(),
                 _ => null
             };
         }
@@ -371,6 +372,52 @@ namespace BizarreChess.Core.Factories
             ApplyPieceTextures(pawn, "Pawn");
 
             return pawn;
+        }
+
+        private static UnitDefinition CreateLancerDefinition()
+        {
+            var lancer = ScriptableObject.CreateInstance<UnitDefinition>();
+            lancer.UnitId = "Lancer";
+            lancer.DisplayName = "Lancer";
+            lancer.PieceType = PieceType.Pawn; // Pawn variant
+            lancer.CanPromote = true;
+            lancer.CanEnPassant = false; // No en passant for lancer
+            lancer.PromotionRow = 7;
+            lancer.BaseCost = 1;
+
+            lancer.BaseStats = new UnitBaseStats
+            {
+                Health = 25,
+                Attack = 6,
+                Defense = 1,
+                Speed = 4,
+                Range = 1,
+                Movement = 1
+            };
+
+            lancer.GrowthStats = new UnitGrowthStats
+            {
+                HealthPerLevel = 3,
+                AttackPerLevel = 1,
+                DefensePerLevel = 1,
+                SpeedPerLevel = 0
+            };
+
+            lancer.MovementPatterns = new List<MovementPattern>
+            {
+                // Moves AND captures forward (unlike pawn which captures diagonally)
+                new MovementPattern(MovementType.Forward, 1),
+                new MovementPattern(MovementType.Forward, 2) { FirstMoveOnly = true }
+            };
+
+            // Use pawn unicode as fallback
+            lancer.UnicodeWhite = ChessUnicode.WhitePawn;
+            lancer.UnicodeBlack = ChessUnicode.BlackPawn;
+
+            // 3D Rendering - will fallback to token if no texture
+            ApplyPieceTextures(lancer, "Lancer");
+
+            return lancer;
         }
 
         #endregion

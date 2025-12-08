@@ -174,7 +174,7 @@ namespace BizarreChess.Core.Units
                     break;
 
                 case MovementType.Forward:
-                    AddForwardCategorized(result, board, fromNode, playerSide, maxDist, isOccupied);
+                    AddForwardCategorized(result, board, fromNode, playerSide, maxDist, isOccupied, isEnemy);
                     break;
 
                 case MovementType.DiagonalCapture:
@@ -412,9 +412,16 @@ namespace BizarreChess.Core.Units
                     break;
 
                 if (isOccupied(nodeId))
-                    break; // Pawn can't capture forward
+                {
+                    // Can capture enemy if not MoveOnly
+                    if (isEnemy(nodeId) && !MoveOnly)
+                        result.Add(nodeId);
+                    break; // Blocked by piece
+                }
 
-                result.Add(nodeId);
+                // Can move to empty square if not CaptureOnly
+                if (!CaptureOnly)
+                    result.Add(nodeId);
             }
         }
 
@@ -597,7 +604,7 @@ namespace BizarreChess.Core.Units
         }
 
         private void AddForwardCategorized(MoveTargets result, BoardGraph board, int fromNode, int playerSide, int maxDist,
-            Func<int, bool> isOccupied)
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
         {
             var coords = board.Definition.GetCoordinates(fromNode);
             int forwardDir = playerSide == 0 ? 1 : -1;
@@ -615,10 +622,25 @@ namespace BizarreChess.Core.Units
                     break;
 
                 if (isOccupied(nodeId))
-                    break; // Pawn can't capture forward
+                {
+                    // Can capture enemy if not MoveOnly
+                    if (isEnemy(nodeId) && !MoveOnly)
+                    {
+                        if (CaptureOnly)
+                            result.CaptureOnly.Add(nodeId);
+                        else
+                            result.Both.Add(nodeId);
+                    }
+                    break; // Blocked by piece (can't move further)
+                }
 
-                // Forward is always move-only (pawn behavior)
-                result.MoveOnly.Add(nodeId);
+                // Empty square
+                if (CaptureOnly)
+                    result.CaptureOnly.Add(nodeId);
+                else if (MoveOnly)
+                    result.MoveOnly.Add(nodeId);
+                else
+                    result.Both.Add(nodeId);
             }
         }
 
@@ -674,8 +696,13 @@ namespace BizarreChess.Core.Units
                         break;
 
                     int nodeId = board.Definition.GetNodeId(x, y);
+                    var nodeState = board.State.GetNode(nodeId);
 
-                    // Skip over abysses (non-passable) - the bolt flies over them
+                    // Blocked by impassable walls - the bolt can't pass through
+                    if (nodeState.IsImpassable)
+                        break;
+
+                    // Skip over abysses and destroyed tiles - the bolt flies over them
                     if (!board.IsPassable(nodeId))
                         continue;
 
