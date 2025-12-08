@@ -1,7 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
+using BizarreChess.Core.Player;
 
-namespace BizarreChess.Presentation
+namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
     /// Generates flat cylinder meshes (tokens) with UV-mapped top for PNG textures.
@@ -131,7 +132,9 @@ namespace BizarreChess.Presentation
         /// <summary>
         /// Creates a complete GameObject with token mesh, material, and collider.
         /// </summary>
-        public static GameObject CreateTokenObject(Texture2D texture, bool isWhite, float radius = DEFAULT_RADIUS, float height = DEFAULT_HEIGHT)
+        /// <param name="texture">Token face texture (piece image)</param>
+        /// <param name="playerId">Player ID for color/texture scheme</param>
+        public static GameObject CreateTokenObject(Texture2D texture, int playerId, float radius = DEFAULT_RADIUS, float height = DEFAULT_HEIGHT)
         {
             var go = new GameObject("Token2D");
 
@@ -139,7 +142,7 @@ namespace BizarreChess.Presentation
             meshFilter.mesh = GenerateTokenMesh(radius, height);
 
             var meshRenderer = go.AddComponent<MeshRenderer>();
-            meshRenderer.material = CreateTokenMaterial(texture, isWhite);
+            meshRenderer.material = CreateTokenMaterial(texture, playerId);
 
             // Add collider for click detection
             var collider = go.AddComponent<MeshCollider>();
@@ -148,29 +151,45 @@ namespace BizarreChess.Presentation
 
             return go;
         }
+        
+        /// <summary>
+        /// Creates token object with legacy bool parameter (for backwards compatibility).
+        /// </summary>
+        public static GameObject CreateTokenObject(Texture2D texture, bool isWhite, float radius = DEFAULT_RADIUS, float height = DEFAULT_HEIGHT)
+        {
+            return CreateTokenObject(texture, isWhite ? 0 : 1, radius, height);
+        }
 
-        private static Material CreateTokenMaterial(Texture2D texture, bool isWhite)
+        private static Material CreateTokenMaterial(Texture2D faceTexture, int playerId)
         {
             // Use URP Lit shader if available, fallback to Standard
             Shader shader = Shader.Find("Universal Render Pipeline/Lit")
                          ?? Shader.Find("Standard");
 
             var mat = new Material(shader);
+            var colorScheme = PlayerColors.Get(playerId);
 
-            if (texture != null)
+            if (faceTexture != null)
             {
-                mat.mainTexture = texture;
-                mat.color = Color.white; // Don't tint the texture
+                // Token2D uses the face texture directly (piece image), not material texture
+                mat.mainTexture = faceTexture;
+                mat.color = Color.white;
+            }
+            else if (colorScheme.PieceTexture != null)
+            {
+                // No face texture - use player's material texture with color tint
+                mat.mainTexture = colorScheme.PieceTexture;
+                mat.mainTextureScale = new Vector2(colorScheme.TextureTiling, colorScheme.TextureTiling);
+                mat.color = colorScheme.PrimaryColor;
             }
             else
             {
-                // Fallback color if no texture
-                mat.color = isWhite
-                    ? new Color(0.95f, 0.92f, 0.85f)  // Ivory
-                    : new Color(0.15f, 0.12f, 0.10f); // Dark wood
+                // Fallback to solid color
+                mat.mainTexture = null;
+                mat.color = colorScheme.PrimaryColor;
             }
 
-            mat.SetFloat("_Smoothness", 0.5f);
+            mat.SetFloat("_Smoothness", colorScheme.Smoothness);
             mat.SetFloat("_Metallic", 0.0f);
 
             return mat;

@@ -42,15 +42,6 @@ namespace BizarreChess.Core.Units
         public PieceRenderMode RenderMode;
         public Texture2D TokenTexture;        // For Token2D mode - displayed on top of flat cylinder
         /// <summary>
-        /// For DisplacementMap mode. Texture encoding:
-        /// - X axis = angle (0° to 360°), Y axis = height (bottom to top)
-        /// - Alpha channel = radius (0=min, 255=max)
-        /// - Primary color: RGB(0, 255, 0) #00FF00 - replaced with player's main color
-        /// - Secondary color: RGB(255, 0, 255) #FF00FF - replaced with player's accent color
-        /// - Other colors = static (not replaced)
-        /// </summary>
-        public Texture2D DisplacementTexture;
-        /// <summary>
         /// For RevolutionVolume mode. The PNG is a cross-section profile cut from center to edge:
         /// - Y axis of image = height of the piece (bottom row = base, top row = tip)
         /// - X axis of image = radius from center outward (left = center axis, right = outer edge)
@@ -133,14 +124,9 @@ namespace BizarreChess.Core.Units
         /// <summary>Flat cylinder with PNG texture on top</summary>
         Token2D,
         /// <summary>
-        /// 3D cylinder from PNG. Alpha=radius, #00FF00=primary color, #FF00FF=secondary color
-        /// </summary>
-        DisplacementMap,
-        /// <summary>
-        /// 3D lathe/revolution volume from PNG profile. 
-        /// X axis = height, Y axis = single pixel column defining the profile.
-        /// Red channel = outer radius, Green channel = inner radius (for concave shapes).
-        /// Alpha = color intensity. RGB defines the color at that height.
+        /// 3D lathe/revolution volume from PNG profile.
+        /// X axis = radius from center, Y axis = height.
+        /// Alpha channel defines solid vs empty space.
         /// </summary>
         RevolutionVolume
     }

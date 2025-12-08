@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-namespace BizarreChess.Presentation
+namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
     /// Marching Cubes mesh extraction from voxel grid.

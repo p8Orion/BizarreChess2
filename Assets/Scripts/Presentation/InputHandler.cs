@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnitRendererType = BizarreChess.Presentation.UnitRenderer.UnitRenderer;
 
 namespace BizarreChess.Presentation
 {
@@ -23,13 +24,13 @@ namespace BizarreChess.Presentation
         // Drag state
         private bool _isDragging;
         private bool _isPotentialDrag; // Mouse is down but hasn't moved enough to be a drag
-        private UnitRenderer _draggedUnit;
+        private UnitRendererType _draggedUnit;
         private Vector2 _dragStartScreenPos;
         private Vector3 _dragStartWorldPos;
         private int _draggedUnitOriginalNode;
         
         // Hover state
-        private UnitRenderer _hoveredUnit;
+        private UnitRendererType _hoveredUnit;
 
         private void Start()
         {
@@ -75,16 +76,16 @@ namespace BizarreChess.Presentation
             Vector2 pointerPos = GetPointerPosition();
             Ray ray = _camera.ScreenPointToRay(pointerPos);
             
-            UnitRenderer hitUnit = null;
+            UnitRendererType hitUnit = null;
             if (Physics.Raycast(ray, out RaycastHit hit, 100f, _interactableLayers))
             {
-                hitUnit = hit.collider.GetComponent<UnitRenderer>();
+                hitUnit = hit.collider.GetComponent<UnitRendererType>();
             }
             
             UpdateHover(hitUnit);
         }
         
-        private void UpdateHover(UnitRenderer unit)
+        private void UpdateHover(UnitRendererType unit)
         {
             if (unit == _hoveredUnit)
                 return;
@@ -174,7 +175,7 @@ namespace BizarreChess.Presentation
 
             if (Physics.Raycast(ray, out RaycastHit hit, 100f, _interactableLayers))
             {
-                var unit = hit.collider.GetComponent<UnitRenderer>();
+                var unit = hit.collider.GetComponent<UnitRendererType>();
                 if (unit != null && CanDragUnit(unit))
                 {
                     // Start potential drag
@@ -270,12 +271,12 @@ namespace BizarreChess.Presentation
             _draggedUnit = null;
         }
 
-        private bool CanDragUnit(UnitRenderer unit)
+        private bool CanDragUnit(UnitRendererType unit)
         {
             return _gameManager?.CanDragUnit(unit.UnitId) ?? false;
         }
 
-        private int GetUnitCurrentNode(UnitRenderer unit)
+        private int GetUnitCurrentNode(UnitRendererType unit)
         {
             return _gameManager?.GetUnitCurrentNode(unit.UnitId) ?? -1;
         }
@@ -293,7 +294,7 @@ namespace BizarreChess.Presentation
             foreach (var hit in hits)
             {
                 // Skip the dragged unit
-                var unit = hit.collider.GetComponent<UnitRenderer>();
+                var unit = hit.collider.GetComponent<UnitRendererType>();
                 if (unit != null && unit == _draggedUnit)
                     continue;
                 
@@ -352,7 +353,7 @@ namespace BizarreChess.Presentation
                 }
 
                 // Check if we hit a unit (non-draggable - enemy unit or not our turn)
-                var unit = hit.collider.GetComponent<UnitRenderer>();
+                var unit = hit.collider.GetComponent<UnitRendererType>();
                 if (unit != null)
                 {
                     unit.OnClicked?.Invoke();

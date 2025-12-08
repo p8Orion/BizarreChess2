@@ -3,11 +3,11 @@ using TMPro;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Player;
 
-namespace BizarreChess.Presentation
+namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
     /// Renders a single unit on the board.
-    /// Supports Token2D and DisplacementMap rendering modes.
+    /// Supports Token2D and RevolutionVolume rendering modes.
     /// </summary>
     public class UnitRenderer : MonoBehaviour
     {
@@ -89,28 +89,17 @@ namespace BizarreChess.Presentation
 
         private void UpdateVisuals()
         {
-            // Get player colors from centralized PlayerColors
+            // Get player colors and textures from centralized PlayerColors
             var colorScheme = PlayerColors.Get(_currentState.OwnerId);
             Color primaryColor = colorScheme.PrimaryColor;
             Color secondaryColor = colorScheme.SecondaryColor;
             Color outlineColor = _currentState.OwnerId == 0 ? Color.black : Color.white;
 
-            // 3D mesh rendering (Token2D or DisplacementMap)
+            // 3D mesh rendering (Token2D or RevolutionVolume)
             if (_meshRenderer != null && _meshRenderer.material != null)
             {
                 var mat = _meshRenderer.material;
-                
-                if (_renderMode == PieceRenderMode.DisplacementMap)
-                {
-                    // For displacement mode, set shader properties for color replacement
-                    mat.SetColor("_PrimaryColor", primaryColor);
-                    mat.SetColor("_SecondaryColor", secondaryColor);
-                }
-                else
-                {
-                    // For Token2D, just set the main color (texture handles the rest)
-                    mat.color = primaryColor;
-                }
+                ApplyTextureToMaterial(mat, colorScheme);
             }
             // 2D Unicode text fallback (when no mesh)
             else if (_unicodeText != null)
@@ -171,9 +160,8 @@ namespace BizarreChess.Presentation
             }
 
             // Keep consistent scale (no scale change on selection)
-            // Token2D has no scale applied, DisplacementMap and RevolutionVolume have 0.8 scale from generator
-            float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
-                               _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
+            // Token2D has no scale applied, RevolutionVolume has 0.8 scale from generator
+            float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
             transform.localScale = Vector3.one * baseScale;
             
             // Add emission glow when selected (works for both render modes)
@@ -347,8 +335,7 @@ namespace BizarreChess.Presentation
             // Smoothly scale up during drag
             _currentLiftProgress = Mathf.MoveTowards(_currentLiftProgress, 1f, Time.deltaTime * _dragLiftSpeed);
             
-            float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
-                               _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
+            float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
             float targetScale = baseScale * _dragScale;
             float currentScale = Mathf.Lerp(baseScale, targetScale, _currentLiftProgress);
             transform.localScale = Vector3.one * currentScale;
@@ -371,8 +358,7 @@ namespace BizarreChess.Presentation
                 transform.position = Vector3.Lerp(_startPosition, _targetPosition, t);
                 
                 // Also restore scale
-                float baseScale = (_renderMode == PieceRenderMode.DisplacementMap || 
-                                   _renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
+                float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
                 float currentScale = Mathf.Lerp(baseScale * _dragScale, baseScale, t);
                 transform.localScale = Vector3.one * currentScale;
             }
@@ -384,6 +370,38 @@ namespace BizarreChess.Presentation
         public bool IsDragging => _isDragging;
         
         #endregion
+
+        /// <summary>
+        /// Apply texture and material settings from player color scheme.
+        /// </summary>
+        private void ApplyTextureToMaterial(Material mat, PlayerColorScheme colorScheme)
+        {
+            // Apply texture if available
+            if (colorScheme.PieceTexture != null)
+            {
+                mat.mainTexture = colorScheme.PieceTexture;
+                mat.mainTextureScale = new Vector2(colorScheme.TextureTiling, colorScheme.TextureTiling);
+                
+                // Tint grayscale texture with player color
+                mat.color = colorScheme.PrimaryColor;
+            }
+            else
+            {
+                // No texture - use solid color
+                mat.mainTexture = null;
+                mat.color = colorScheme.PrimaryColor;
+            }
+            
+            // Apply smoothness
+            if (mat.HasProperty("_Smoothness"))
+            {
+                mat.SetFloat("_Smoothness", colorScheme.Smoothness);
+            }
+            else if (mat.HasProperty("_Glossiness"))
+            {
+                mat.SetFloat("_Glossiness", colorScheme.Smoothness);
+            }
+        }
 
         private void SetAlpha(float alpha)
         {

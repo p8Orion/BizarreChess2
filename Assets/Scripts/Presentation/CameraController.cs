@@ -17,7 +17,7 @@ namespace BizarreChess.Presentation
         [SerializeField] private float _maxVerticalAngle = 85f;
         
         [Header("Zoom Settings")]
-        [SerializeField] private float _zoomSpeed = 2f;
+        [SerializeField] private float _zoomSpeed = 5f;
         [SerializeField] private float _minDistance = 5f;
         [SerializeField] private float _maxDistance = 25f;
         
@@ -112,7 +112,7 @@ namespace BizarreChess.Presentation
             float scroll = mouse.scroll.ReadValue().y;
             if (Mathf.Abs(scroll) > 0.01f)
             {
-                _targetDistance -= scroll * _zoomSpeed * 0.01f;
+                _targetDistance -= scroll * _zoomSpeed * 0.1f;
                 _targetDistance = Mathf.Clamp(_targetDistance, _minDistance, _maxDistance);
             }
         }

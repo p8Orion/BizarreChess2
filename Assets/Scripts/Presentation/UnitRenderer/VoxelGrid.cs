@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace BizarreChess.Presentation
+namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
     /// 3D voxel grid for revolution mesh generation.

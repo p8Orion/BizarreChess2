@@ -357,15 +357,6 @@ namespace BizarreChess.Core.Factories
                 return;
             }
 
-            // Try displacement texture (3D cylinder from PNG)
-            var displacementTex = Resources.Load<Texture2D>($"Pieces/Displacement/{pieceName}");
-            if (displacementTex != null)
-            {
-                unit.RenderMode = PieceRenderMode.DisplacementMap;
-                unit.DisplacementTexture = displacementTex;
-                return;
-            }
-
             // Try token texture (flat cylinder with PNG)
             var tokenTex = Resources.Load<Texture2D>($"Pieces/Tokens/{pieceName}");
             if (tokenTex != null)

@@ -24,6 +24,7 @@ namespace BizarreChess.Presentation
         [Header("Layout")]
         [SerializeField] private float _tileSize = 1f;
         [SerializeField] private float _tileSpacing = 0f;
+        [SerializeField] private float _tileThickness = 0.3f;
 
         private Dictionary<int, TileRenderer> _tiles = new Dictionary<int, TileRenderer>();
         private BoardGraph _boardGraph;
@@ -56,6 +57,10 @@ namespace BizarreChess.Presentation
 
         private void CreateTile(NodeDefinition nodeDef, NodeState nodeState)
         {
+            // Don't render Abyss tiles - they should appear as voids
+            if (nodeState.CurrentType == NodeType.Abyss)
+                return;
+
             if (_tilePrefab == null)
             {
                 CreatePlaceholderTile(nodeDef, nodeState);
@@ -72,24 +77,24 @@ namespace BizarreChess.Presentation
 
         private void CreatePlaceholderTile(NodeDefinition nodeDef, NodeState nodeState)
         {
-            // Create simple quad as placeholder
-            var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            // Create cube with thickness instead of flat quad
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = $"Tile_{nodeDef.Id}";
             go.transform.SetParent(transform);
-            go.transform.localPosition = GetTilePosition(nodeDef.Position);
-            go.transform.localScale = Vector3.one * _tileSize;
-            go.transform.rotation = Quaternion.Euler(90, 0, 0);
+            
+            // Position tile so top surface is at y=0 (tile extends downward)
+            Vector3 basePos = GetTilePosition(nodeDef.Position);
+            go.transform.localPosition = new Vector3(basePos.x, -_tileThickness / 2f, basePos.z);
+            go.transform.localScale = new Vector3(_tileSize, _tileThickness, _tileSize);
 
             var renderer = go.GetComponent<Renderer>();
             renderer.material = new Material(Shader.Find("Unlit/Color"));
             renderer.material.color = GetTileColor(nodeDef, nodeState);
 
-            // Replace MeshCollider with BoxCollider for better raycast detection
-            var meshCollider = go.GetComponent<MeshCollider>();
-            if (meshCollider != null)
-                Object.Destroy(meshCollider);
-            var boxCollider = go.AddComponent<BoxCollider>();
-            boxCollider.size = new Vector3(1f, 1f, 0.1f);
+            // Cube already has BoxCollider, just adjust if needed
+            var boxCollider = go.GetComponent<BoxCollider>();
+            if (boxCollider != null)
+                boxCollider.size = Vector3.one;
 
             // Add click handler
             var clickHandler = go.AddComponent<TileClickHandler>();
@@ -304,9 +309,29 @@ namespace BizarreChess.Presentation
         /// </summary>
         public void UpdateTile(int nodeId, NodeState newState)
         {
+            var nodeDef = _boardGraph.Definition.Nodes[nodeId];
+            
+            // Handle Abyss: destroy the tile if it exists
+            if (newState.CurrentType == NodeType.Abyss)
+            {
+                if (_tiles.TryGetValue(nodeId, out var existingTile))
+                {
+                    Destroy(existingTile.gameObject);
+                    _tiles.Remove(nodeId);
+                }
+                return;
+            }
+            
+            // Handle tile that was Abyss but now is something else: create it
+            if (!_tiles.ContainsKey(nodeId))
+            {
+                CreateTile(nodeDef, newState);
+                return;
+            }
+            
+            // Normal update
             if (_tiles.TryGetValue(nodeId, out var tile))
             {
-                var nodeDef = _boardGraph.Definition.Nodes[nodeId];
                 tile.UpdateState(newState, GetTileColor(nodeDef, newState));
             }
         }

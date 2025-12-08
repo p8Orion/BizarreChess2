@@ -7,6 +7,9 @@ using BizarreChess.Core.Factories;
 using BizarreChess.Networking;
 using BizarreChess.Persistence;
 using BizarreChess.Presentation;
+using UnitRendererType = BizarreChess.Presentation.UnitRenderer.UnitRenderer;
+using Token2DMeshGenerator = BizarreChess.Presentation.UnitRenderer.Token2DMeshGenerator;
+using RevolutionMeshGenerator = BizarreChess.Presentation.UnitRenderer.RevolutionMeshGenerator;
 
 namespace BizarreChess
 {
@@ -20,7 +23,7 @@ namespace BizarreChess
         [Header("References (Auto-found if not set)")]
         [SerializeField] private BoardRenderer _boardRenderer;
         [SerializeField] private Transform _unitsContainer;
-        [SerializeField] private UnitRenderer _unitPrefab;
+        [SerializeField] private UnitRendererType _unitPrefab;
 
         [Header("Network (Auto-found if not set)")]
         [SerializeField] private GameNetworkManager _networkManager;
@@ -100,7 +103,7 @@ namespace BizarreChess
         private Dictionary<string, UnitDefinition> _unitDefinitions;
 
         // Rendering
-        private Dictionary<int, UnitRenderer> _unitRenderers = new Dictionary<int, UnitRenderer>();
+        private Dictionary<int, UnitRendererType> _unitRenderers = new Dictionary<int, UnitRendererType>();
 
         // Selection
         private int? _selectedUnitId;
@@ -418,7 +421,7 @@ namespace BizarreChess
             if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
                 return;
 
-            UnitRenderer renderer;
+            UnitRendererType renderer;
             
             if (_unitPrefab != null)
             {
@@ -427,7 +430,7 @@ namespace BizarreChess
             else
             {
                 // Create piece based on render mode
-                bool isWhite = unit.OwnerId == 0;
+                int playerId = unit.OwnerId;
                 GameObject pieceGO;
 
                 switch (definition.RenderMode)
@@ -435,36 +438,28 @@ namespace BizarreChess
                     case PieceRenderMode.Token2D:
                         pieceGO = Token2DMeshGenerator.CreateTokenObject(
                             definition.TokenTexture, 
-                            isWhite
-                        );
-                        break;
-
-                    case PieceRenderMode.DisplacementMap:
-                        pieceGO = DisplacementMeshGenerator.CreateDisplacementObject(
-                            definition.DisplacementTexture,
-                            isWhite,
-                            definition.PieceHeight
+                            playerId
                         );
                         break;
 
                     case PieceRenderMode.RevolutionVolume:
                         pieceGO = RevolutionMeshGenerator.CreateRevolutionObject(
                             definition.RevolutionTexture,
-                            isWhite,
+                            playerId,
                             definition.PieceHeight
                         );
                         break;
 
                     default:
                         // Fallback to Token2D with no texture
-                        pieceGO = Token2DMeshGenerator.CreateTokenObject(null, isWhite);
+                        pieceGO = Token2DMeshGenerator.CreateTokenObject(null, playerId);
                         break;
                 }
 
                 pieceGO.name = $"Unit_{unit.UnitId}_{unit.DefinitionId}";
                 pieceGO.transform.SetParent(_unitsContainer);
                 
-                renderer = pieceGO.AddComponent<UnitRenderer>();
+                renderer = pieceGO.AddComponent<UnitRendererType>();
             }
 
             var position = GetWorldPosition(unit.CurrentNodeId);
