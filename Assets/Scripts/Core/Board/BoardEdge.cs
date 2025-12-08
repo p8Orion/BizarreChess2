@@ -1,6 +1,6 @@
 using System;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// Definition of an edge connecting two nodes (immutable template).

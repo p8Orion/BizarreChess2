@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 
 namespace BizarreChess.Core.Armies

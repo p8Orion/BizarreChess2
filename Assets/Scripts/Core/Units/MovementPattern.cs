@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 
 namespace BizarreChess.Core.Units
 {
@@ -176,8 +176,83 @@ namespace BizarreChess.Core.Units
                 if (isOccupied(nodeId) && !isEnemy(nodeId))
                     continue; // Can't move to friendly occupied square
 
+                // Check if leap path is blocked by Impassable terrain
+                if (IsLeapPathBlocked(board, coords, offset))
+                    continue;
+
                 result.Add(nodeId);
             }
+        }
+
+        /// <summary>
+        /// Checks if a leaper's path is blocked by Impassable terrain.
+        /// Explores ALL possible Manhattan paths (step-by-step horizontal/vertical moves).
+        /// The leap is blocked only if ALL paths have an Impassable tile.
+        /// Abyss tiles do NOT block leaper paths.
+        /// </summary>
+        private bool IsLeapPathBlocked(BoardGraph board, Vector2Int from, Vector2Int offset)
+        {
+            Vector2Int target = from + offset;
+            // Try to find ANY valid path - if one exists, leap is not blocked
+            return !HasValidLeapPath(board, from, target);
+        }
+
+        /// <summary>
+        /// Recursively searches for any valid path from current to target,
+        /// moving one step at a time (horizontal or vertical).
+        /// Returns true if at least one valid path exists.
+        /// </summary>
+        private bool HasValidLeapPath(BoardGraph board, Vector2Int current, Vector2Int target)
+        {
+            // Base case: reached destination
+            if (current == target)
+                return true;
+            
+            int dx = target.x - current.x;
+            int dy = target.y - current.y;
+            
+            // Try moving horizontally (if we still need to move in X)
+            if (dx != 0)
+            {
+                int stepX = dx > 0 ? 1 : -1;
+                Vector2Int next = new Vector2Int(current.x + stepX, current.y);
+                
+                // Intermediate tiles must not be Impassable (destination is checked elsewhere)
+                bool isDestination = (next == target);
+                bool canPass = isDestination || !IsTileImpassable(board, next.x, next.y);
+                
+                if (canPass && HasValidLeapPath(board, next, target))
+                    return true;
+            }
+            
+            // Try moving vertically (if we still need to move in Y)
+            if (dy != 0)
+            {
+                int stepY = dy > 0 ? 1 : -1;
+                Vector2Int next = new Vector2Int(current.x, current.y + stepY);
+                
+                bool isDestination = (next == target);
+                bool canPass = isDestination || !IsTileImpassable(board, next.x, next.y);
+                
+                if (canPass && HasValidLeapPath(board, next, target))
+                    return true;
+            }
+            
+            // No valid path found from this position
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a tile at the given coordinates is Impassable (not Abyss).
+        /// Returns false if coordinates are out of bounds.
+        /// </summary>
+        private bool IsTileImpassable(BoardGraph board, int x, int y)
+        {
+            if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                return false;
+            
+            int nodeId = board.Definition.GetNodeId(x, y);
+            return board.State.GetNode(nodeId).IsImpassable;
         }
 
         private void AddAdjacentTargets(List<int> result, BoardGraph board, int fromNode, int maxDist,

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// High-level API for querying and operating on the board graph.

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
 

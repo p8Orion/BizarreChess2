@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// Runtime state of the board (mutable during match, synchronized in multiplayer).

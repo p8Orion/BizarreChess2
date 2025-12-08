@@ -65,7 +65,7 @@ namespace BizarreChess.Core.Units
         /// <summary>
         /// Get all valid target nodes for this unit's movement patterns.
         /// </summary>
-        public List<int> GetAllValidMoves(Graph.BoardGraph board, int fromNode, int playerSide,
+        public List<int> GetAllValidMoves(Board.BoardGraph board, int fromNode, int playerSide,
             Func<int, bool> isOccupied, Func<int, bool> isEnemy, bool hasMoved = false)
         {
             var result = new List<int>();

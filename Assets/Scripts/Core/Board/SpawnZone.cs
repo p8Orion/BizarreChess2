@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// Defines where a player can place their units at the start of a match.

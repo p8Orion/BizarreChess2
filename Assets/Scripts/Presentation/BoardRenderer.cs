@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Player;
 
 namespace BizarreChess.Presentation
@@ -15,11 +15,8 @@ namespace BizarreChess.Presentation
         [SerializeField] private LineRenderer _connectionPrefab;
 
         [Header("Colors")]
-        [SerializeField] private Color _lightTileColor = new Color(0.93f, 0.86f, 0.70f);
-        [SerializeField] private Color _darkTileColor = new Color(0.55f, 0.36f, 0.24f);
         [SerializeField] private Color _attackHighlightColor = new Color(1f, 0.5f, 0.5f, 0.5f);
-        [SerializeField] private Color _specialTileColor = new Color(1f, 0.84f, 0f, 0.5f);
-        // Player highlight colors are now derived from PlayerColors in ChessFactory
+        // Tile colors/textures now come from BoardSkins.Current
 
         [Header("Layout")]
         [SerializeField] private float _tileSize = 1f;
@@ -61,21 +58,24 @@ namespace BizarreChess.Presentation
             if (nodeState.CurrentType == NodeType.Abyss)
                 return;
 
+            var style = GetTileStyle(nodeDef, nodeState);
+            if (style == null) return;
+
             if (_tilePrefab == null)
             {
-                CreatePlaceholderTile(nodeDef, nodeState);
+                CreatePlaceholderTile(nodeDef, nodeState, style);
                 return;
             }
 
             var tile = Instantiate(_tilePrefab, transform);
-            tile.Initialize(nodeDef, nodeState, GetTileColor(nodeDef, nodeState), _tileSize);
+            tile.Initialize(nodeDef, nodeState, style, _tileSize);
             tile.transform.localPosition = GetTilePosition(nodeDef.Position);
             tile.OnClicked += () => OnTileClicked?.Invoke(nodeDef.Id);
 
             _tiles[nodeDef.Id] = tile;
         }
 
-        private void CreatePlaceholderTile(NodeDefinition nodeDef, NodeState nodeState)
+        private void CreatePlaceholderTile(NodeDefinition nodeDef, NodeState nodeState, TileStyle style)
         {
             // Create cube with thickness instead of flat quad
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -88,8 +88,8 @@ namespace BizarreChess.Presentation
             go.transform.localScale = new Vector3(_tileSize, _tileThickness, _tileSize);
 
             var renderer = go.GetComponent<Renderer>();
-            renderer.material = new Material(Shader.Find("Unlit/Color"));
-            renderer.material.color = GetTileColor(nodeDef, nodeState);
+            var mat = CreateTileMaterial(style);
+            renderer.material = mat;
 
             // Cube already has BoxCollider, just adjust if needed
             var boxCollider = go.GetComponent<BoxCollider>();
@@ -103,34 +103,110 @@ namespace BizarreChess.Presentation
 
             // Create a TileRenderer wrapper
             var tileRenderer = go.AddComponent<TileRenderer>();
-            tileRenderer.InitializePlaceholder(nodeDef.Id, renderer);
+            tileRenderer.InitializePlaceholder(nodeDef.Id, renderer, style);
 
             _tiles[nodeDef.Id] = tileRenderer;
+            
+            // Add pyramid mesh for Impassable tiles (mountains)
+            if (nodeState.CurrentType == NodeType.Impassable)
+            {
+                CreateMountainOnTile(go, style);
+            }
         }
 
-        private Color GetTileColor(NodeDefinition nodeDef, NodeState nodeState)
+        /// <summary>
+        /// Creates a pyramid (mountain) mesh on top of an Impassable tile.
+        /// </summary>
+        private void CreateMountainOnTile(GameObject parentTile, TileStyle style)
         {
-            // Special tile types override base color
-            switch (nodeState.CurrentType)
-            {
-                case NodeType.Destroyed:
-                    return Color.black;
-                case NodeType.Impassable:
-                    return Color.gray;
-                case NodeType.Boost:
-                    return Color.green * 0.7f;
-                case NodeType.Trap:
-                    return Color.red * 0.7f;
-                case NodeType.Teleport:
-                    return Color.blue * 0.7f;
-                case NodeType.Unstable:
-                    return Color.yellow * 0.7f;
-                case NodeType.Abyss:
-                    return new Color(0.1f, 0.05f, 0.15f); // Dark purple void
-            }
+            var mountainGo = new GameObject("Mountain");
+            mountainGo.transform.SetParent(parentTile.transform);
+            
+            // Position pyramid on top of tile (tile top is at local y=0.5 due to cube scaling)
+            mountainGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+            mountainGo.transform.localRotation = Quaternion.identity;
+            mountainGo.transform.localScale = Vector3.one; // Scale is baked into mesh
+            
+            var meshFilter = mountainGo.AddComponent<MeshFilter>();
+            var meshRenderer = mountainGo.AddComponent<MeshRenderer>();
+            
+            // Create pyramid mesh sized relative to tile
+            float pyramidBase = 0.7f;  // 70% of tile size (in local space)
+            float pyramidHeight = 0.8f; // Height in local space
+            meshFilter.mesh = CreatePyramidMesh(pyramidBase, pyramidHeight);
+            
+            // Use same material as tile but slightly darker for depth
+            var mountainMat = CreateTileMaterial(style);
+            mountainMat.color = style.Color * 0.85f;
+            meshRenderer.material = mountainMat;
+        }
 
-            // Normal tiles use light/dark pattern
-            return nodeDef.IsLightTile ? _lightTileColor : _darkTileColor;
+        /// <summary>
+        /// Creates a simple 4-sided pyramid mesh.
+        /// </summary>
+        private Mesh CreatePyramidMesh(float baseSize, float height)
+        {
+            var mesh = new Mesh();
+            mesh.name = "Pyramid";
+            
+            float half = baseSize / 2f;
+            
+            // 5 vertices: 4 base corners + 1 apex
+            Vector3[] vertices = new Vector3[]
+            {
+                // Base corners (y = 0)
+                new Vector3(-half, 0, -half),  // 0: front-left
+                new Vector3(half, 0, -half),   // 1: front-right
+                new Vector3(half, 0, half),    // 2: back-right
+                new Vector3(-half, 0, half),   // 3: back-left
+                // Apex
+                new Vector3(0, height, 0)      // 4: top
+            };
+            
+            // 6 triangles: 4 sides + 2 for base quad
+            int[] triangles = new int[]
+            {
+                // Front face
+                0, 4, 1,
+                // Right face
+                1, 4, 2,
+                // Back face
+                2, 4, 3,
+                // Left face
+                3, 4, 0,
+                // Base (two triangles)
+                0, 1, 2,
+                0, 2, 3
+            };
+            
+            mesh.vertices = vertices;
+            mesh.triangles = triangles;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
+        }
+        
+        private Material CreateTileMaterial(TileStyle style)
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit") 
+                         ?? Shader.Find("Standard");
+            var mat = new Material(shader);
+            
+            if (style.Texture != null)
+            {
+                mat.mainTexture = style.Texture;
+                mat.mainTextureScale = new Vector2(style.TextureTiling, style.TextureTiling);
+            }
+            mat.color = style.Color;
+            mat.SetFloat("_Smoothness", style.Smoothness);
+            
+            return mat;
+        }
+
+        private TileStyle GetTileStyle(NodeDefinition nodeDef, NodeState nodeState)
+        {
+            return BoardSkins.Current.GetStyle(nodeState.CurrentType, nodeDef.IsLightTile);
         }
 
         private Vector3 GetTilePosition(Vector2 gridPosition)
@@ -332,7 +408,8 @@ namespace BizarreChess.Presentation
             // Normal update
             if (_tiles.TryGetValue(nodeId, out var tile))
             {
-                tile.UpdateState(newState, GetTileColor(nodeDef, newState));
+                var style = GetTileStyle(nodeDef, newState);
+                tile.UpdateState(newState, style);
             }
         }
 

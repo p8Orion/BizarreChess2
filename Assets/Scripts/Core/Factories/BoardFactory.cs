@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 
 namespace BizarreChess.Core.Factories
 {
@@ -15,9 +15,9 @@ namespace BizarreChess.Core.Factories
         /// <summary>
         /// Create a standard 8x8 chess board definition.
         /// </summary>
-        public static BoardDefinition CreateClassicBoard()
+        public static BoardDefinition CreateClassicBoard(BoardSkin skin = null)
         {
-            return CreateRectangularBoard(8, 8, "classic_8x8", "Classic Chess Board");
+            return CreateRectangularBoard(8, 8, "classic_8x8", "Classic Chess Board", skin);
         }
 
         #endregion
@@ -31,7 +31,8 @@ namespace BizarreChess.Core.Factories
             int width,
             int height,
             string boardId = null,
-            string displayName = null)
+            string displayName = null,
+            BoardSkin skin = null)
         {
             var board = ScriptableObject.CreateInstance<BoardDefinition>();
             board.BoardId = boardId ?? $"board_{width}x{height}";
@@ -42,6 +43,7 @@ namespace BizarreChess.Core.Factories
             board.Nodes = new List<NodeDefinition>();
             board.Edges = new List<EdgeDefinition>();
             board.SpawnZones = new List<SpawnZone>();
+            board.Skin = skin ?? BoardSkins.ClassicWood;
 
             // Create nodes
             for (int y = 0; y < height; y++)
@@ -141,7 +143,8 @@ namespace BizarreChess.Core.Factories
             string boardId,
             string displayName,
             int width = 8,
-            int height = 8)
+            int height = 8,
+            BoardSkin skin = null)
         {
             var board = ScriptableObject.CreateInstance<BoardDefinition>();
             board.BoardId = boardId;
@@ -152,6 +155,7 @@ namespace BizarreChess.Core.Factories
             board.Nodes = new List<NodeDefinition>();
             board.Edges = new List<EdgeDefinition>();
             board.SpawnZones = new List<SpawnZone>();
+            board.Skin = skin ?? BoardSkins.ClassicWood;
             return board;
         }
 
@@ -200,54 +204,67 @@ namespace BizarreChess.Core.Factories
         /// <summary>
         /// Create a 6x6 mini chess board.
         /// </summary>
-        public static BoardDefinition CreateMiniBoard()
+        public static BoardDefinition CreateMiniBoard(BoardSkin skin = null)
         {
-            return CreateRectangularBoard(6, 6, "mini_6x6", "Mini Chess Board");
+            return CreateRectangularBoard(6, 6, "mini_6x6", "Mini Chess Board", skin);
         }
 
         /// <summary>
         /// Create a 10x10 grand chess board.
         /// </summary>
-        public static BoardDefinition CreateGrandBoard()
+        public static BoardDefinition CreateGrandBoard(BoardSkin skin = null)
         {
-            return CreateRectangularBoard(10, 10, "grand_10x10", "Grand Chess Board");
+            return CreateRectangularBoard(10, 10, "grand_10x10", "Grand Chess Board", skin);
         }
 
         /// <summary>
         /// Create an 8x10 Capablanca chess board.
         /// </summary>
-        public static BoardDefinition CreateCapablancaBoard()
+        public static BoardDefinition CreateCapablancaBoard(BoardSkin skin = null)
         {
-            return CreateRectangularBoard(10, 8, "capablanca_10x8", "Capablanca Chess Board");
+            return CreateRectangularBoard(10, 8, "capablanca_10x8", "Capablanca Chess Board", skin);
         }
 
         /// <summary>
-        /// Create a board with X% of tiles as Abyss.
+        /// Create a board with X% of tiles as Abyss and Y% as Impassable.
         /// Abyss tiles cannot be landed on but maintain edge connectivity (can be jumped over).
-        /// Abyss tiles will not appear in the first 2 or last 2 rows (spawn zones).
-        /// Abyss pattern is symmetric (mirrored horizontally and vertically) for fairness.
+        /// Impassable tiles cannot be landed on AND block leaper paths (mountains).
+        /// Special tiles will not appear in the first 2 or last 2 rows (spawn zones).
+        /// Pattern is symmetric (mirrored horizontally and vertically) for fairness.
         /// </summary>
         /// <param name="sizeX">Board width</param>
         /// <param name="sizeY">Board height</param>
         /// <param name="abyssPercentage">Percentage of eligible tiles to become abyss (0-100)</param>
+        /// <param name="impassablePercentage">Percentage of eligible tiles to become impassable mountains (0-100)</param>
         /// <param name="seed">Random seed for reproducible generation (-1 for random)</param>
         public static BoardDefinition CreateBoardWithAbyss(
             int sizeX,
             int sizeY,
             float abyssPercentage,
+            float impassablePercentage = 0f,
             int seed = -1,
             string boardId = null,
-            string displayName = null)
+            string displayName = null,
+            BoardSkin skin = null)
         {
             var board = ScriptableObject.CreateInstance<BoardDefinition>();
-            board.BoardId = boardId ?? $"abyss_{sizeX}x{sizeY}_{abyssPercentage:F0}pct";
-            board.DisplayName = displayName ?? $"{sizeX}x{sizeY} Abyss Board ({abyssPercentage:F0}%)";
+            
+            string idSuffix = impassablePercentage > 0 
+                ? $"abyss_{sizeX}x{sizeY}_{abyssPercentage:F0}a_{impassablePercentage:F0}i"
+                : $"abyss_{sizeX}x{sizeY}_{abyssPercentage:F0}pct";
+            string nameSuffix = impassablePercentage > 0
+                ? $"{sizeX}x{sizeY} Board ({abyssPercentage:F0}% Abyss, {impassablePercentage:F0}% Mountains)"
+                : $"{sizeX}x{sizeY} Abyss Board ({abyssPercentage:F0}%)";
+                
+            board.BoardId = boardId ?? idSuffix;
+            board.DisplayName = displayName ?? nameSuffix;
             board.Width = sizeX;
             board.Height = sizeY;
             board.PlacementMode = PlacementMode.Automatic;
             board.Nodes = new List<NodeDefinition>();
             board.Edges = new List<EdgeDefinition>();
             board.SpawnZones = new List<SpawnZone>();
+            board.Skin = skin ?? BoardSkins.ClassicWood;
 
             // Use provided seed or generate random one
             var random = seed >= 0 ? new System.Random(seed) : new System.Random();
@@ -265,20 +282,29 @@ namespace BizarreChess.Core.Factories
                 }
             }
 
-            // Calculate total eligible tiles (both halves) and target abyss count
+            // Calculate total eligible tiles (both halves)
             int totalEligibleTiles = bottomHalfTiles.Count * 2; // Each tile has a mirror
-            int targetAbyssCount = Mathf.RoundToInt(totalEligibleTiles * Mathf.Clamp(abyssPercentage, 0f, 100f) / 100f);
             
-            // Each selection creates 2 abyss tiles (original + mirror)
-            int selectionsNeeded = targetAbyssCount / 2;
+            // Calculate target counts for each terrain type
+            int targetAbyssCount = Mathf.RoundToInt(totalEligibleTiles * Mathf.Clamp(abyssPercentage, 0f, 100f) / 100f);
+            int targetImpassableCount = Mathf.RoundToInt(totalEligibleTiles * Mathf.Clamp(impassablePercentage, 0f, 100f) / 100f);
+            
+            // Each selection creates 2 tiles (original + mirror)
+            int abyssSelectionsNeeded = targetAbyssCount / 2;
+            int impassableSelectionsNeeded = targetImpassableCount / 2;
 
-            // Shuffle and select tiles from bottom half
-            var abyssTiles = new HashSet<int>();
+            // Shuffle tiles for random distribution
             ShuffleList(bottomHalfTiles, random);
             
-            for (int i = 0; i < selectionsNeeded && i < bottomHalfTiles.Count; i++)
+            var abyssTiles = new HashSet<int>();
+            var impassableTiles = new HashSet<int>();
+            
+            int tileIndex = 0;
+            
+            // Select abyss tiles first
+            for (int i = 0; i < abyssSelectionsNeeded && tileIndex < bottomHalfTiles.Count; i++, tileIndex++)
             {
-                var pos = bottomHalfTiles[i];
+                var pos = bottomHalfTiles[tileIndex];
                 int id = pos.y * sizeX + pos.x;
                 
                 // Add original tile
@@ -290,15 +316,36 @@ namespace BizarreChess.Core.Factories
                 int mirrorId = mirrorY * sizeX + mirrorX;
                 abyssTiles.Add(mirrorId);
             }
+            
+            // Select impassable tiles from remaining tiles
+            for (int i = 0; i < impassableSelectionsNeeded && tileIndex < bottomHalfTiles.Count; i++, tileIndex++)
+            {
+                var pos = bottomHalfTiles[tileIndex];
+                int id = pos.y * sizeX + pos.x;
+                
+                // Add original tile
+                impassableTiles.Add(id);
+                
+                // Add mirrored tile (both horizontally and vertically)
+                int mirrorX = sizeX - 1 - pos.x;
+                int mirrorY = sizeY - 1 - pos.y;
+                int mirrorId = mirrorY * sizeX + mirrorX;
+                impassableTiles.Add(mirrorId);
+            }
 
-            // Create all nodes (abyss tiles still exist, just with Abyss type)
+            // Create all nodes
             for (int y = 0; y < sizeY; y++)
             {
                 for (int x = 0; x < sizeX; x++)
                 {
                     int id = y * sizeX + x;
                     bool isLight = (x + y) % 2 == 1;
-                    NodeType nodeType = abyssTiles.Contains(id) ? NodeType.Abyss : NodeType.Normal;
+                    
+                    NodeType nodeType = NodeType.Normal;
+                    if (abyssTiles.Contains(id))
+                        nodeType = NodeType.Abyss;
+                    else if (impassableTiles.Contains(id))
+                        nodeType = NodeType.Impassable;
 
                     board.Nodes.Add(new NodeDefinition(
                         id: id,
@@ -368,13 +415,15 @@ namespace BizarreChess.Core.Factories
             int height,
             List<Vector2Int> holes,
             string boardId = null,
-            string displayName = null)
+            string displayName = null,
+            BoardSkin skin = null)
         {
             var board = CreateEmptyBoard(
                 boardId ?? $"holes_{width}x{height}",
                 displayName ?? $"{width}x{height} Board with Holes",
                 width,
-                height
+                height,
+                skin
             );
 
             var holeSet = new HashSet<Vector2Int>(holes);

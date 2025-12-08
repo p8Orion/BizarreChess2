@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// ScriptableObject that defines a board template (immutable map data).
@@ -24,6 +24,10 @@ namespace BizarreChess.Core.Graph
         [Header("Board Properties")]
         public int Width = 8;
         public int Height = 8;
+        
+        [Header("Visual")]
+        [System.NonSerialized]
+        public BoardSkin Skin;  // Default skin for this board (set at runtime)
 
         /// <summary>
         /// Gets node ID from grid coordinates (for grid-based boards).

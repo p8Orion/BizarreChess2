@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace BizarreChess.Core.Graph
+namespace BizarreChess.Core.Board
 {
     /// <summary>
     /// Definition of a node in the board graph (immutable template data).
@@ -52,6 +52,8 @@ namespace BizarreChess.Core.Graph
         }
 
         public bool IsPassable => IsActive && CurrentType != NodeType.Impassable && CurrentType != NodeType.Destroyed && CurrentType != NodeType.Abyss;
+        
+        public bool IsImpassable => CurrentType == NodeType.Impassable;
     }
 
     /// <summary>

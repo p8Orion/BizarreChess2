@@ -156,6 +156,34 @@ namespace BizarreChess.Presentation
             _targetPitch = 60f;
             _targetDistance = 14f;
         }
+        
+        /// <summary>
+        /// Sets the camera view based on the player's side.
+        /// Player 0 (white/first) views from south, seeing their pieces at bottom.
+        /// Player 1 (black/second) views from north, seeing their pieces at bottom.
+        /// </summary>
+        /// <param name="playerId">The local player's ID (0 or 1)</param>
+        /// <param name="instant">If true, snaps instantly without smooth transition</param>
+        public void SetPlayerView(int playerId, bool instant = false)
+        {
+            // Player 0 (white): yaw = 180 (camera in -Z, looking toward +Z, pieces in low Z appear at bottom)
+            // Player 1 (black): yaw = 0 (camera in +Z, looking toward -Z, pieces in high Z appear at bottom)
+            float targetYaw = playerId == 0 ? 180f : 0f;
+            
+            _targetYaw = targetYaw;
+            _targetPitch = 60f;
+            _targetDistance = 14f;
+            
+            if (instant)
+            {
+                _currentYaw = _targetYaw;
+                _currentPitch = _targetPitch;
+                _currentDistance = _targetDistance;
+                UpdateCameraPosition();
+            }
+            
+            Debug.Log($"[CameraController] Set view for player {playerId} (yaw: {targetYaw})");
+        }
     }
 }
 

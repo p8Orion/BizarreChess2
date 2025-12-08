@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Rules;
 using BizarreChess.Core.Factories;
@@ -379,6 +379,26 @@ namespace BizarreChess
             else
             {
                 Debug.LogError("[GameManager] Cannot render - BoardRenderer or BoardGraph is null!");
+            }
+            
+            // Position camera based on which player we are
+            PositionCameraForPlayer(_networkedGameState.LocalPlayerId);
+        }
+        
+        /// <summary>
+        /// Position the camera to view from the player's side of the board.
+        /// </summary>
+        private void PositionCameraForPlayer(int playerId)
+        {
+            var cameraController = Camera.main?.GetComponent<CameraController>();
+            if (cameraController != null)
+            {
+                cameraController.SetPlayerView(playerId, instant: true);
+                Debug.Log($"[GameManager] Camera positioned for player {playerId}");
+            }
+            else
+            {
+                Debug.LogWarning("[GameManager] CameraController not found on main camera");
             }
         }
 

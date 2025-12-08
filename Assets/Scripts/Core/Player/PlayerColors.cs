@@ -29,7 +29,7 @@ namespace BizarreChess.Core.Player
         }
         
         /// <summary>
-        /// Create a color scheme with texture loaded by name from Resources/Pieces/Textures/
+        /// Create a color scheme with texture loaded by name from Resources/Textures/
         /// </summary>
         public PlayerColorScheme(Color primary, Color secondary, string textureName)
             : this(primary, secondary, LoadTextureByName(textureName))
@@ -71,7 +71,7 @@ namespace BizarreChess.Core.Player
         private static Texture2D LoadTextureByName(string textureName)
         {
             if (string.IsNullOrEmpty(textureName)) return null;
-            return Resources.Load<Texture2D>($"Pieces/Textures/{textureName}");
+            return Resources.Load<Texture2D>($"Textures/{textureName}");
         }
     }
 
@@ -84,8 +84,8 @@ namespace BizarreChess.Core.Player
         private static bool _initialized = false;
         
         // Default texture paths (in Resources folder)
-        private const string TEXTURE_PATH_LIGHT = "Pieces/Textures/Wood1";
-        private const string TEXTURE_PATH_DARK = "Pieces/Textures/Wood2";
+        private const string TEXTURE_PATH_LIGHT = "Textures/Wood1";
+        private const string TEXTURE_PATH_DARK = "Textures/Wood2";
 
         static PlayerColors()
         {
@@ -187,11 +187,11 @@ namespace BizarreChess.Core.Player
         }
         
         /// <summary>
-        /// Load a texture from Resources/Pieces/Textures by name.
+        /// Load a texture from Resources/Textures by name.
         /// </summary>
         public static Texture2D LoadTexture(string textureName)
         {
-            return Resources.Load<Texture2D>($"Pieces/Textures/{textureName}");
+            return Resources.Load<Texture2D>($"Textures/{textureName}");
         }
     }
 }

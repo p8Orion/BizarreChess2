@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 
 namespace BizarreChess.Core.Rules

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Rules;
 using BizarreChess.Core.Armies;
@@ -23,6 +23,9 @@ namespace BizarreChess.Networking
         public NetworkVariable<int> CurrentPlayerId = new NetworkVariable<int>(0);
         public NetworkVariable<GamePhaseNetwork> Phase = new NetworkVariable<GamePhaseNetwork>(GamePhaseNetwork.WaitingForPlayers);
         public NetworkVariable<int> WinnerId = new NetworkVariable<int>(-1);
+        
+        // Board seed for synchronized random generation (server-authoritative)
+        public NetworkVariable<int> BoardSeed = new NetworkVariable<int>(0);
 
         // Local state (server builds this, clients receive via RPCs)
         private ChessSetup _chessSetup;
@@ -39,18 +42,15 @@ namespace BizarreChess.Networking
 
         // Player mapping (clientId -> playerId)
         private Dictionary<ulong, int> _clientToPlayer = new Dictionary<ulong, int>();
+        
+        // Pending players waiting for game to start (used for randomization)
+        private List<ulong> _pendingPlayers = new List<ulong>();
 
         #region Initialization
 
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
-
-            // Initialize chess setup (board, pieces, army)
-            // Use _boardDefinition if set in inspector, otherwise use default setup with abyss
-            _chessSetup = _boardDefinition != null 
-                ? ChessFactory.CreateSetup(board: _boardDefinition)
-                : ChessFactory.CreateDefaultSetup();
 
             // Subscribe to network variable changes (clients)
             CurrentTurn.OnValueChanged += (old, newVal) => OnTurnChanged?.Invoke();
@@ -67,7 +67,14 @@ namespace BizarreChess.Networking
 
             if (IsServer)
             {
-                // Server initializes the board
+                // Server generates the random seed for the board
+                BoardSeed.Value = Random.Range(1, int.MaxValue);
+                Debug.Log($"[NetworkedGameState] Server generated board seed: {BoardSeed.Value}");
+                
+                // Server initializes the chess setup with the seed
+                InitializeChessSetup(BoardSeed.Value);
+                
+                // Server initializes the board graph
                 InitializeBoard();
                 
                 // Subscribe to client connection events
@@ -79,6 +86,24 @@ namespace BizarreChess.Networking
             }
             
             Debug.Log($"[NetworkedGameState] Spawned. IsServer: {IsServer}, IsClient: {IsClient}");
+        }
+        
+        /// <summary>
+        /// Initialize the chess setup with a specific seed for reproducible board generation.
+        /// </summary>
+        private void InitializeChessSetup(int seed)
+        {
+            if (_boardDefinition != null)
+            {
+                // Use inspector-defined board (no randomness)
+                _chessSetup = ChessFactory.CreateSetup(board: _boardDefinition);
+            }
+            else
+            {
+                // Use default setup with synchronized seed for abyss generation
+                _chessSetup = ChessFactory.CreateDefaultSetupWithSeed(seed);
+            }
+            Debug.Log($"[NetworkedGameState] Chess setup initialized with seed {seed}");
         }
 
         public override void OnNetworkDespawn()
@@ -118,32 +143,57 @@ namespace BizarreChess.Networking
         #region Game Setup (Server)
 
         /// <summary>
-        /// Called when a client connects - assign them a player slot.
+        /// Called when a client connects - add them to pending list.
+        /// Slots are randomized when both players are ready.
         /// </summary>
         public void OnPlayerJoined(ulong clientId)
         {
             if (!IsServer) return;
+            if (_pendingPlayers.Contains(clientId) || _clientToPlayer.ContainsKey(clientId)) return;
+            if (_pendingPlayers.Count >= 2) return; // Already have 2 players
 
-            int playerSlot = _clientToPlayer.Count;
-            if (playerSlot >= 2) return; // Already have 2 players
+            _pendingPlayers.Add(clientId);
+            Debug.Log($"[NetworkedGameState] Player {clientId} joined, waiting for opponent... ({_pendingPlayers.Count}/2)");
 
-            _clientToPlayer[clientId] = playerSlot;
-            Debug.Log($"[NetworkedGameState] Player {clientId} assigned to slot {playerSlot}");
-
-            // Notify client of their player ID
-            AssignPlayerClientRpc(playerSlot, new ClientRpcParams
+            // Check if we can start (2 players ready)
+            if (_pendingPlayers.Count >= 2)
             {
-                Send = new ClientRpcSendParams
-                {
-                    TargetClientIds = new[] { clientId }
-                }
-            });
-
-            // Check if we can start
-            if (_clientToPlayer.Count >= 2)
-            {
+                AssignRandomSlots();
                 StartGame();
             }
+        }
+        
+        /// <summary>
+        /// Randomly assign player slots (0 = white/first, 1 = black/second).
+        /// </summary>
+        private void AssignRandomSlots()
+        {
+            if (_pendingPlayers.Count < 2) return;
+            
+            // Randomize who gets white (slot 0) and who gets black (slot 1)
+            bool swapSlots = Random.value > 0.5f;
+            
+            int slot0 = swapSlots ? 1 : 0;
+            int slot1 = swapSlots ? 0 : 1;
+            
+            _clientToPlayer[_pendingPlayers[0]] = slot0;
+            _clientToPlayer[_pendingPlayers[1]] = slot1;
+            
+            Debug.Log($"[NetworkedGameState] Slots randomized: Client {_pendingPlayers[0]} -> slot {slot0}, Client {_pendingPlayers[1]} -> slot {slot1}");
+            
+            // Notify each client of their assigned slot
+            foreach (var kvp in _clientToPlayer)
+            {
+                AssignPlayerClientRpc(kvp.Value, new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams
+                    {
+                        TargetClientIds = new[] { kvp.Key }
+                    }
+                });
+            }
+            
+            _pendingPlayers.Clear();
         }
 
         [ClientRpc]
@@ -190,6 +240,13 @@ namespace BizarreChess.Networking
             // Initialize local game state for clients too
             if (!IsServer)
             {
+                // Client must use the same seed as the server to generate identical board
+                int seed = BoardSeed.Value;
+                Debug.Log($"[NetworkedGameState] Client using server's board seed: {seed}");
+                
+                // Initialize chess setup with server's seed
+                InitializeChessSetup(seed);
+                
                 var playerSetups = new List<PlayerSetup>
                 {
                     new PlayerSetup { DisplayName = "Player 1", Army = _chessSetup.GetArmy(0) },

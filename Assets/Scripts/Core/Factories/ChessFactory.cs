@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
 using BizarreChess.Core.Player;
@@ -18,18 +18,29 @@ namespace BizarreChess.Core.Factories
 
         /// <summary>
         /// Create a complete chess setup with all defaults (classic 8x8 board, classic vs camel army).
+        /// Uses a random seed for board generation.
         /// </summary>
         public static ChessSetup CreateDefaultSetup()
         {
-            //var board = BoardFactory.CreateClassicBoard();
+            return CreateDefaultSetupWithSeed(-1);
+        }
+        
+        /// <summary>
+        /// Create a complete chess setup with a specific seed for reproducible board generation.
+        /// Use this for networked games to ensure all clients have identical boards.
+        /// </summary>
+        /// <param name="seed">Random seed for board generation. Use -1 for random seed.</param>
+        public static ChessSetup CreateDefaultSetupWithSeed(int seed)
+        {
             var board = BoardFactory.CreateBoardWithAbyss(
                 sizeX: 8,
                 sizeY: 10,
-                abyssPercentage: 20,  // 15% de los tiles elegibles serán abismo
-                seed: -1             // Seed opcional para reproducibilidad (-1 = random)
+                abyssPercentage: 10,  // 20% de los tiles elegibles serán abismo
+                impassablePercentage: 40,
+                seed: seed            // Seed para reproducibilidad
             );
             var classicArmy = ArmyFactory.CreateClassicArmy();
-            var camelArmy = ArmyFactory.Get("camel_army");
+            var camelArmy = ArmyFactory.Get("camel_army");  // TODO: Create a camel army
 
             var setup = new ChessSetup
             {   
@@ -222,6 +233,11 @@ namespace BizarreChess.Core.Factories
         /// Color schemes for each player. If null, uses defaults.
         /// </summary>
         public List<PlayerColorScheme> PlayerColorSchemes;
+        
+        /// <summary>
+        /// Board skin (tile textures/colors). If null, uses default.
+        /// </summary>
+        public BoardSkin BoardSkin;
 
         /// <summary>
         /// Get all piece definitions used in this setup (from PiecesFactory cache).
@@ -266,16 +282,36 @@ namespace BizarreChess.Core.Factories
         /// </summary>
         public void ApplyColors()
         {
+            // Apply player colors
             if (PlayerColorSchemes == null || PlayerColorSchemes.Count == 0)
             {
                 PlayerColors.ResetToDefaults();
-                return;
             }
-
-            for (int i = 0; i < PlayerColorSchemes.Count; i++)
+            else
             {
-                var scheme = PlayerColorSchemes[i];
-                PlayerColors.Set(i, scheme.PrimaryColor, scheme.SecondaryColor, scheme.PieceTexture);
+                for (int i = 0; i < PlayerColorSchemes.Count; i++)
+                {
+                    var scheme = PlayerColorSchemes[i];
+                    PlayerColors.Set(i, scheme.PrimaryColor, scheme.SecondaryColor, scheme.PieceTexture);
+                }
+            }
+            
+            // Apply board skin
+            ApplyBoardSkin();
+        }
+        
+        /// <summary>
+        /// Apply this setup's board skin to the global BoardSkins.
+        /// </summary>
+        public void ApplyBoardSkin()
+        {
+            if (BoardSkin != null)
+            {
+                BoardSkins.SetSkin(BoardSkin);
+            }
+            else
+            {
+                BoardSkins.ResetToDefault();
             }
         }
     }

@@ -1,5 +1,6 @@
 using UnityEngine;
-using BizarreChess.Core.Graph;
+using BizarreChess.Core.Board;
+using BizarreChess.Core.Board;
 
 namespace BizarreChess.Presentation
 {
@@ -17,6 +18,7 @@ namespace BizarreChess.Presentation
         public System.Action OnClicked;
 
         private Color _baseColor;
+        private TileStyle _currentStyle;
         private Renderer _placeholderRenderer;
         private bool _isPlaceholder;
         
@@ -26,14 +28,15 @@ namespace BizarreChess.Presentation
         private bool _isHoverHighlighted;
         private Color _hoverColor;
 
-        public void Initialize(NodeDefinition nodeDef, NodeState nodeState, Color color, float size)
+        public void Initialize(NodeDefinition nodeDef, NodeState nodeState, TileStyle style, float size)
         {
             NodeId = nodeDef.Id;
-            _baseColor = color;
+            _currentStyle = style;
+            _baseColor = style.Color;
 
             if (_spriteRenderer != null)
             {
-                _spriteRenderer.color = color;
+                _spriteRenderer.color = style.Color;
                 transform.localScale = Vector3.one * size;
             }
 
@@ -50,25 +53,27 @@ namespace BizarreChess.Presentation
             UpdateVisualForNodeType(nodeState);
         }
 
-        public void InitializePlaceholder(int nodeId, Renderer renderer)
+        public void InitializePlaceholder(int nodeId, Renderer renderer, TileStyle style)
         {
             NodeId = nodeId;
             _placeholderRenderer = renderer;
             _isPlaceholder = true;
-            _baseColor = renderer.material.color;
+            _currentStyle = style;
+            _baseColor = style.Color;
         }
 
-        public void UpdateState(NodeState state, Color color)
+        public void UpdateState(NodeState state, TileStyle style)
         {
-            _baseColor = color;
+            _currentStyle = style;
+            _baseColor = style?.Color ?? Color.magenta;
             
             if (_isPlaceholder && _placeholderRenderer != null)
             {
-                _placeholderRenderer.material.color = color;
+                ApplyStyleToMaterial(_placeholderRenderer.material, style);
             }
             else if (_spriteRenderer != null)
             {
-                _spriteRenderer.color = color;
+                _spriteRenderer.color = _baseColor;
             }
 
             if (_debugText != null)
@@ -77,6 +82,25 @@ namespace BizarreChess.Presentation
             }
 
             UpdateVisualForNodeType(state);
+        }
+        
+        private void ApplyStyleToMaterial(Material mat, TileStyle style)
+        {
+            if (style == null) return;
+            
+            if (style.Texture != null)
+            {
+                mat.mainTexture = style.Texture;
+                mat.mainTextureScale = new Vector2(style.TextureTiling, style.TextureTiling);
+            }
+            else
+            {
+                mat.mainTexture = null;
+            }
+            mat.color = style.Color;
+            
+            if (mat.HasProperty("_Smoothness"))
+                mat.SetFloat("_Smoothness", style.Smoothness);
         }
 
         /// <summary>
