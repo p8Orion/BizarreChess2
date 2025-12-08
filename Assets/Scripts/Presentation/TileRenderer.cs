@@ -1,18 +1,21 @@
+using System;
 using UnityEngine;
 using BizarreChess.Core.Board;
 
 namespace BizarreChess.Presentation
 {
     /// <summary>
-    /// Type of move indicator to display on a tile.
+    /// Individual marker types that can be shown on a tile.
+    /// Multiple markers can be active simultaneously.
     /// </summary>
-    public enum MoveIndicatorType
+    [Flags]
+    public enum TileMarkers
     {
-        None,
-        MoveOnly,       // Solid circle (can move but not capture)
-        CaptureOnly,    // Ring (can capture but not move to empty)
-        Both,           // Circle inside ring (can both move and capture)
-        RangedCapture   // Ring for ranged capture (unit doesn't move when capturing)
+        None = 0,
+        Move = 1 << 0,           // Solid circle (can move to empty square)
+        Capture = 1 << 1,        // Ring (can capture enemy here)
+        RangedCapture = 1 << 2,  // Crosshair/different ring (ranged attack, unit doesn't move)
+        // Future markers can be added here without breaking existing code
     }
 
     /// <summary>
@@ -42,7 +45,9 @@ namespace BizarreChess.Presentation
         // Move indicator objects (created dynamically)
         private GameObject _moveCircle;
         private GameObject _captureRing;
-        private MoveIndicatorType _currentIndicator = MoveIndicatorType.None;
+        private GameObject _rangedCaptureMarker;
+        private TileMarkers _activeMarkers = TileMarkers.None;
+        private Color _markerColor = Color.white;
 
         public void Initialize(NodeDefinition nodeDef, NodeState nodeState, TileStyle style, float size)
         {
@@ -223,52 +228,133 @@ namespace BizarreChess.Presentation
         #region Move Indicators
 
         /// <summary>
-        /// Show move indicator (circle for move, ring for capture, both for normal).
-        /// RangedCapture uses the same ring as CaptureOnly.
+        /// Set a specific marker on this tile.
         /// </summary>
-        public void SetMoveIndicator(MoveIndicatorType type, Color color)
+        public void SetMarker(TileMarkers marker, Color color)
         {
-            if (_currentIndicator == type && type == MoveIndicatorType.None)
-                return;
+            _activeMarkers |= marker;
+            _markerColor = color;
+            UpdateMarkerVisuals();
+        }
 
-            _currentIndicator = type;
+        /// <summary>
+        /// Clear a specific marker from this tile.
+        /// </summary>
+        public void ClearMarker(TileMarkers marker)
+        {
+            _activeMarkers &= ~marker;
+            UpdateMarkerVisuals();
+        }
 
-            // Create indicators if needed
+        /// <summary>
+        /// Clear all markers from this tile.
+        /// </summary>
+        public void ClearAllMarkers()
+        {
+            _activeMarkers = TileMarkers.None;
+            UpdateMarkerVisuals();
+        }
+
+        /// <summary>
+        /// Check if a specific marker is active.
+        /// </summary>
+        public bool HasMarker(TileMarkers marker) => (_activeMarkers & marker) != 0;
+
+        /// <summary>
+        /// Get all currently active markers.
+        /// </summary>
+        public TileMarkers ActiveMarkers => _activeMarkers;
+
+        private void UpdateMarkerVisuals()
+        {
             EnsureIndicatorsCreated();
 
-            // Show/hide based on type (RangedCapture shows ring like CaptureOnly)
-            bool showCircle = type == MoveIndicatorType.MoveOnly || type == MoveIndicatorType.Both;
-            bool showRing = type == MoveIndicatorType.CaptureOnly || type == MoveIndicatorType.Both || type == MoveIndicatorType.RangedCapture;
+            bool showMove = HasMarker(TileMarkers.Move);
+            bool showCapture = HasMarker(TileMarkers.Capture);
+            bool showRanged = HasMarker(TileMarkers.RangedCapture);
 
             if (_moveCircle != null)
             {
-                _moveCircle.SetActive(showCircle);
-                if (showCircle)
+                _moveCircle.SetActive(showMove);
+                if (showMove)
                 {
                     var renderer = _moveCircle.GetComponent<MeshRenderer>();
                     if (renderer != null)
-                        ApplyColorToMaterial(renderer.material, color);
+                        ApplyColorToMaterial(renderer.material, _markerColor);
                 }
             }
 
             if (_captureRing != null)
             {
-                _captureRing.SetActive(showRing);
-                if (showRing)
+                _captureRing.SetActive(showCapture);
+                if (showCapture)
                 {
                     var renderer = _captureRing.GetComponent<MeshRenderer>();
                     if (renderer != null)
-                        ApplyColorToMaterial(renderer.material, color);
+                        ApplyColorToMaterial(renderer.material, _markerColor);
+                }
+            }
+
+            if (_rangedCaptureMarker != null)
+            {
+                _rangedCaptureMarker.SetActive(showRanged);
+                if (showRanged)
+                {
+                    var renderer = _rangedCaptureMarker.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                        ApplyColorToMaterial(renderer.material, _markerColor);
                 }
             }
         }
 
         /// <summary>
-        /// Clear all move indicators.
+        /// Legacy method for compatibility - maps old enum to new marker system.
         /// </summary>
+        [Obsolete("Use SetMarker/ClearMarker instead")]
+        public void SetMoveIndicator(MoveIndicatorType type, Color color)
+        {
+            ClearAllMarkers();
+            _markerColor = color;
+            
+            switch (type)
+            {
+                case MoveIndicatorType.MoveOnly:
+                    _activeMarkers = TileMarkers.Move;
+                    break;
+                case MoveIndicatorType.CaptureOnly:
+                    _activeMarkers = TileMarkers.Capture;
+                    break;
+                case MoveIndicatorType.Both:
+                    _activeMarkers = TileMarkers.Move | TileMarkers.Capture;
+                    break;
+                case MoveIndicatorType.RangedCapture:
+                    _activeMarkers = TileMarkers.RangedCapture;
+                    break;
+            }
+            
+            UpdateMarkerVisuals();
+        }
+
+        /// <summary>
+        /// Legacy method for compatibility.
+        /// </summary>
+        [Obsolete("Use ClearAllMarkers instead")]
         public void ClearMoveIndicator()
         {
-            SetMoveIndicator(MoveIndicatorType.None, Color.white);
+            ClearAllMarkers();
+        }
+        
+        /// <summary>
+        /// Legacy enum for backwards compatibility.
+        /// </summary>
+        [Obsolete("Use TileMarkers flags instead")]
+        public enum MoveIndicatorType
+        {
+            None,
+            MoveOnly,
+            CaptureOnly,
+            Both,
+            RangedCapture
         }
 
         private void EnsureIndicatorsCreated()
@@ -276,15 +362,20 @@ namespace BizarreChess.Presentation
             if (_moveCircle == null)
             {
                 // Circle radius matches inner radius of ring so they fit together
-                _moveCircle = CreateCircleIndicator("MoveCircle", 0.34f, 0f);
+                _moveCircle = CreateCircleIndicator("MoveCircle", 0.34f);
             }
             if (_captureRing == null)
             {
                 _captureRing = CreateRingIndicator("CaptureRing", 0.45f, 0.35f);
             }
+            if (_rangedCaptureMarker == null)
+            {
+                // Crosshair for ranged attacks - larger than move circle (0.34) to show it exceeds
+                _rangedCaptureMarker = CreateCrosshairIndicator("RangedCapture", 0.5f);
+            }
         }
 
-        private GameObject CreateCircleIndicator(string name, float radius, float unused)
+        private GameObject CreateCircleIndicator(string name, float radius)
         {
             var go = new GameObject(name);
             
@@ -414,6 +505,70 @@ namespace BizarreChess.Presentation
                         float innerAlpha = Mathf.Clamp01((dist - innerRadius) / 3f);
                         float alpha = Mathf.Min(outerAlpha, innerAlpha);
                         tex.SetPixel(x, y, new Color(1, 1, 1, alpha * 0.6f));
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, Color.clear);
+                    }
+                }
+            }
+            
+            tex.Apply();
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
+        }
+
+        private GameObject CreateCrosshairIndicator(string name, float size)
+        {
+            var go = new GameObject(name);
+            
+            var meshFilter = go.AddComponent<MeshFilter>();
+            var meshRenderer = go.AddComponent<MeshRenderer>();
+            
+            meshFilter.mesh = CreateQuadMesh();
+            meshRenderer.material = CreateDecalMaterial(CreateCrosshairTexture(128));
+            meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            meshRenderer.receiveShadows = false;
+            
+            Vector3 tileWorldPos = transform.position;
+            float tileTopY = tileWorldPos.y + transform.lossyScale.y * 0.5f + 0.015f; // Slightly higher than ring
+            go.transform.position = new Vector3(tileWorldPos.x, tileTopY, tileWorldPos.z);
+            go.transform.rotation = Quaternion.Euler(90, 0, 0);
+            go.transform.localScale = new Vector3(size * 2f, size * 2f, 1f);
+            
+            go.transform.SetParent(transform, worldPositionStays: true);
+            go.SetActive(false);
+            return go;
+        }
+
+        private Texture2D CreateCrosshairTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float center = size / 2f;
+            float lineWidth = size * 0.055f;  // Thin lines, same thickness as capture ring
+            float lineLength = size * 0.48f;  // Extends beyond circle edge
+            float centerGap = size * 0.12f;   // Empty center
+            
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = Mathf.Abs(x - center);
+                    float dy = Mathf.Abs(y - center);
+                    
+                    // Horizontal bar of the + (with center gap)
+                    bool inCrossH = dy < lineWidth && dx < lineLength && dx > centerGap;
+                    // Vertical bar of the + (with center gap)
+                    bool inCrossV = dx < lineWidth && dy < lineLength && dy > centerGap;
+                    
+                    if (inCrossH || inCrossV)
+                    {
+                        // Soft edges on the ends and inner gap
+                        float outerEdge = lineLength - (inCrossH ? dx : dy);
+                        float innerEdge = (inCrossH ? dx : dy) - centerGap;
+                        float sideEdge = lineWidth - (inCrossH ? dy : dx);
+                        float alpha = Mathf.Clamp01(Mathf.Min(outerEdge, innerEdge, sideEdge) / 3f) * 0.7f;
+                        tex.SetPixel(x, y, new Color(1, 1, 1, alpha));
                     }
                     else
                     {

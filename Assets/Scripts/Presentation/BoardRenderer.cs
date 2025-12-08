@@ -458,12 +458,12 @@ namespace BizarreChess.Presentation
 
         private Color GetSelectionColor(int ownerId)
         {
-            return PlayerColors.Get(ownerId).PrimaryColor;
+            return PlayerColors.Get(ownerId).SecondaryColor;
         }
 
         private Color GetHoverColor(int ownerId)
         {
-            return PlayerColors.Get(ownerId).SecondaryColor;
+            return PlayerColors.Get(ownerId).PrimaryColor;
         }
 
         /// <summary>
@@ -529,59 +529,8 @@ namespace BizarreChess.Presentation
 
             Color hoverColor = GetHoverColor(ownerId);
             
-            // Track which nodes already have indicators to avoid overwriting
-            var indicatedNodes = new HashSet<int>();
-
-            // Move-only: solid circle (hover has priority, overrides selection)
-            foreach (var nodeId in moves.MoveOnly)
-            {
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    // If also in RangedCapture, show Both (can move OR ranged capture)
-                    var type = moves.RangedCapture.Contains(nodeId) 
-                        ? MoveIndicatorType.Both 
-                        : MoveIndicatorType.MoveOnly;
-                    tile.SetMoveIndicator(type, hoverColor);
-                    _highlightedHover.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
-                }
-            }
-
-            // Capture-only: ring
-            foreach (var nodeId in moves.CaptureOnly)
-            {
-                if (indicatedNodes.Contains(nodeId)) continue;
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, hoverColor);
-                    _highlightedHover.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
-                }
-            }
-
-            // Both: circle + ring
-            foreach (var nodeId in moves.Both)
-            {
-                if (indicatedNodes.Contains(nodeId)) continue;
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.Both, hoverColor);
-                    _highlightedHover.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
-                }
-            }
-
-            // Ranged capture: crosshair (skip if already indicated as MoveOnly+RangedCapture)
-            foreach (var nodeId in moves.RangedCapture)
-            {
-                if (indicatedNodes.Contains(nodeId)) continue;
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.RangedCapture, hoverColor);
-                    _highlightedHover.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
-                }
-            }
+            // Apply markers from MoveTargets - each list adds its corresponding marker
+            ApplyMarkersFromMoveTargets(moves, hoverColor, _highlightedHover);
         }
 
         /// <summary>
@@ -598,57 +547,53 @@ namespace BizarreChess.Presentation
             _currentSelectionMoves = moves;
             _currentSelectionColor = indicatorColor;
 
-            // Track which nodes already have indicators to avoid overwriting
-            var indicatedNodes = new HashSet<int>();
+            // Apply markers from MoveTargets - each list adds its corresponding marker
+            ApplyMarkersFromMoveTargets(moves, indicatorColor, _indicatedTiles);
+        }
 
-            // Move-only: solid circle
+        /// <summary>
+        /// Apply markers to tiles based on MoveTargets categories.
+        /// Each category adds its marker independently - tiles can have multiple markers.
+        /// </summary>
+        private void ApplyMarkersFromMoveTargets(MoveTargets moves, Color color, HashSet<int> trackingSet)
+        {
+            // MoveOnly and Both can move to empty squares
             foreach (var nodeId in moves.MoveOnly)
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    // If also in RangedCapture, show Both (can move OR ranged capture)
-                    var type = moves.RangedCapture.Contains(nodeId) 
-                        ? MoveIndicatorType.Both 
-                        : MoveIndicatorType.MoveOnly;
-                    tile.SetMoveIndicator(type, indicatorColor);
-                    _indicatedTiles.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
+                    tile.SetMarker(TileMarkers.Move, color);
+                    trackingSet.Add(nodeId);
                 }
             }
-
-            // Capture-only: ring
-            foreach (var nodeId in moves.CaptureOnly)
-            {
-                if (indicatedNodes.Contains(nodeId)) continue;
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, indicatorColor);
-                    _indicatedTiles.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
-                }
-            }
-
-            // Both: circle + ring
+            
             foreach (var nodeId in moves.Both)
             {
-                if (indicatedNodes.Contains(nodeId)) continue;
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetMoveIndicator(MoveIndicatorType.Both, indicatorColor);
-                    _indicatedTiles.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
+                    tile.SetMarker(TileMarkers.Move, color);
+                    tile.SetMarker(TileMarkers.Capture, color);
+                    trackingSet.Add(nodeId);
                 }
             }
 
-            // Ranged capture: crosshair (skip if already indicated as MoveOnly+RangedCapture)
-            foreach (var nodeId in moves.RangedCapture)
+            // CaptureOnly can only capture
+            foreach (var nodeId in moves.CaptureOnly)
             {
-                if (indicatedNodes.Contains(nodeId)) continue;
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.SetMoveIndicator(MoveIndicatorType.RangedCapture, indicatorColor);
-                    _indicatedTiles.Add(nodeId);
-                    indicatedNodes.Add(nodeId);
+                    tile.SetMarker(TileMarkers.Capture, color);
+                    trackingSet.Add(nodeId);
+                }
+            }
+
+            // RangedCapture is independent - can be combined with Move
+            foreach (var nodeId in moves.RangedCapture)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMarker(TileMarkers.RangedCapture, color);
+                    trackingSet.Add(nodeId);
                 }
             }
         }
@@ -662,7 +607,7 @@ namespace BizarreChess.Presentation
             {
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
-                    tile.ClearMoveIndicator();
+                    tile.ClearAllMarkers();
                 }
             }
             _indicatedTiles.Clear();
@@ -707,7 +652,7 @@ namespace BizarreChess.Presentation
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
                     tile.SetHoverHighlight(false, Color.white);
-                    tile.ClearMoveIndicator();
+                    tile.ClearAllMarkers();
                 }
             }
             _highlightedHover.Clear();
@@ -720,29 +665,9 @@ namespace BizarreChess.Presentation
         {
             if (_currentSelectionMoves == null) return;
 
-            foreach (var nodeId in _currentSelectionMoves.MoveOnly)
-            {
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.MoveOnly, _currentSelectionColor);
-                }
-            }
-
-            foreach (var nodeId in _currentSelectionMoves.CaptureOnly)
-            {
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, _currentSelectionColor);
-                }
-            }
-
-            foreach (var nodeId in _currentSelectionMoves.Both)
-            {
-                if (_tiles.TryGetValue(nodeId, out var tile))
-                {
-                    tile.SetMoveIndicator(MoveIndicatorType.Both, _currentSelectionColor);
-                }
-            }
+            // Re-apply markers using the same logic as ShowCategorizedMoves
+            var tempSet = new HashSet<int>();
+            ApplyMarkersFromMoveTargets(_currentSelectionMoves, _currentSelectionColor, tempSet);
         }
 
         #endregion

@@ -182,9 +182,9 @@ namespace BizarreChess.Presentation.UnitRenderer
                 if (selected)
                 {
                     _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use PRIMARY color for selection highlight
+                    // Use SECONDARY color for selection highlight
                     var colorScheme = PlayerColors.Get(_currentState.OwnerId);
-                    Color emissionColor = colorScheme.PrimaryColor * 0.8f;
+                    Color emissionColor = colorScheme.SecondaryColor * 0.8f;
                     _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
                 }
                 else
@@ -205,11 +205,11 @@ namespace BizarreChess.Presentation.UnitRenderer
                 if (capturable)
                 {
                     _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use attacker's PRIMARY color for selection, SECONDARY for hover
+                    // Use attacker's SECONDARY color for selection, PRIMARY for hover
                     var colorScheme = PlayerColors.Get(attackerOwnerId);
                     Color emissionColor = isHover 
-                        ? colorScheme.SecondaryColor * 0.6f 
-                        : colorScheme.PrimaryColor * 0.6f;
+                        ? colorScheme.PrimaryColor * 0.6f 
+                        : colorScheme.SecondaryColor * 0.6f;
                     _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
                 }
                 else if (!_isSelected)
