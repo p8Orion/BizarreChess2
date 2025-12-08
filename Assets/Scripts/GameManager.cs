@@ -108,6 +108,7 @@ namespace BizarreChess
         // Selection
         private int? _selectedUnitId;
         private List<int> _validMoves = new List<int>();
+        private List<int> _capturableUnitIds = new List<int>();
         
         // Hover state
         private int? _hoveredUnitId;
@@ -588,10 +589,18 @@ namespace BizarreChess
                     }
                 }
 
-                // Otherwise, select our own unit
+                // Select or deselect our own unit
                 if (unit.OwnerId == _gameState.CurrentPlayerId)
                 {
-                    SelectUnit(unitId);
+                    // If clicking on already selected unit, deselect
+                    if (_selectedUnitId.HasValue && _selectedUnitId.Value == unitId)
+                    {
+                        ClearSelection();
+                    }
+                    else
+                    {
+                        SelectUnit(unitId);
+                    }
                 }
             }
             else
@@ -615,10 +624,18 @@ namespace BizarreChess
                     }
                 }
 
-                // Otherwise, select our own unit
+                // Select or deselect our own unit
                 if (unit.OwnerId == _networkedGameState.LocalPlayerId)
                 {
-                    SelectUnit(unitId);
+                    // If clicking on already selected unit, deselect
+                    if (_selectedUnitId.HasValue && _selectedUnitId.Value == unitId)
+                    {
+                        ClearSelection();
+                    }
+                    else
+                    {
+                        SelectUnit(unitId);
+                    }
                 }
             }
         }
@@ -631,6 +648,8 @@ namespace BizarreChess
 
             // Get the unit to know its owner
             int ownerId = 0;
+            MoveTargets categorizedMoves = null;
+            
             if (_offlineMode)
             {
                 var unit = _gameState.GetUnit(unitId);
@@ -639,7 +658,8 @@ namespace BizarreChess
                     ownerId = unit.OwnerId;
                     if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
                     {
-                        _validMoves = _moveValidator.GetValidMovesForUnit(unit, def, _gameState.Units);
+                        categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, def, _gameState.Units);
+                        _validMoves = categorizedMoves.GetAll();
                     }
                 }
             }
@@ -651,7 +671,8 @@ namespace BizarreChess
                 {
                     ownerId = unit.OwnerId;
                 }
-                _validMoves = _networkedGameState.GetValidMovesForUnit(unitId);
+                categorizedMoves = _networkedGameState.GetCategorizedMovesForUnit(unitId);
+                _validMoves = categorizedMoves?.GetAll() ?? new List<int>();
             }
 
             // Highlight unit
@@ -660,8 +681,14 @@ namespace BizarreChess
                 renderer.SetSelected(true);
             }
 
-            // Highlight valid moves with owner color
-            _boardRenderer?.HighlightValidMoves(_validMoves, ownerId);
+            // Show categorized move indicators (circle/ring)
+            if (categorizedMoves != null)
+            {
+                _boardRenderer?.ShowCategorizedMoves(categorizedMoves, ownerId);
+            }
+
+            // Mark capturable enemy units
+            MarkCapturableUnits(ownerId);
 
             OnUnitSelected?.Invoke(unitId);
         }
@@ -676,11 +703,54 @@ namespace BizarreChess
                 }
             }
 
+            // Clear capturable unit highlights
+            ClearCapturableMarks();
+
             _selectedUnitId = null;
             _validMoves.Clear();
             _boardRenderer?.ClearHighlights();
 
             OnSelectionCleared?.Invoke();
+        }
+
+        private void MarkCapturableUnits(int attackerOwnerId)
+        {
+            ClearCapturableMarks();
+
+            // Find enemy units on valid move targets
+            List<UnitState> allUnits = _offlineMode 
+                ? _gameState?.Units 
+                : _networkedGameState?.GetAllUnits();
+
+            if (allUnits == null) return;
+
+            foreach (var unit in allUnits)
+            {
+                if (!unit.IsAlive) continue;
+                if (unit.OwnerId == attackerOwnerId) continue; // Skip own units
+
+                // Check if this enemy is on a valid capture square
+                if (_validMoves.Contains(unit.CurrentNodeId))
+                {
+                    if (_unitRenderers.TryGetValue(unit.UnitId, out var renderer))
+                    {
+                        renderer.SetCapturable(true, attackerOwnerId);
+                        _capturableUnitIds.Add(unit.UnitId);
+                    }
+                }
+            }
+        }
+
+        private void ClearCapturableMarks()
+        {
+            foreach (var unitId in _capturableUnitIds)
+            {
+                if (_unitRenderers.TryGetValue(unitId, out var renderer))
+                {
+                    renderer.SetCapturable(false, 0);
+                }
+            }
+            _capturableUnitIds.Clear();
         }
 
         #endregion
@@ -701,6 +771,8 @@ namespace BizarreChess
             
             // Get unit info and calculate valid moves
             int ownerId = 0;
+            MoveTargets categorizedMoves = null;
+            
             if (_offlineMode)
             {
                 var unit = _gameState?.GetUnit(unitId);
@@ -709,7 +781,8 @@ namespace BizarreChess
                     ownerId = unit.OwnerId;
                     if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
                     {
-                        _hoverMoves = _moveValidator.GetValidMovesForUnit(unit, def, _gameState.Units);
+                        categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, def, _gameState.Units);
+                        _hoverMoves = categorizedMoves.GetAll();
                     }
                 }
             }
@@ -721,11 +794,15 @@ namespace BizarreChess
                 {
                     ownerId = unit.OwnerId;
                 }
-                _hoverMoves = _networkedGameState?.GetValidMovesForUnit(unitId) ?? new List<int>();
+                categorizedMoves = _networkedGameState?.GetCategorizedMovesForUnit(unitId);
+                _hoverMoves = categorizedMoves?.GetAll() ?? new List<int>();
             }
             
-            // Show hover highlights (more transparent than selection)
-            _boardRenderer?.HighlightHoverMoves(_hoverMoves, ownerId);
+            // Show hover with categorized indicators (circle/ring) in secondary color
+            if (categorizedMoves != null)
+            {
+                _boardRenderer?.ShowCategorizedHoverMoves(categorizedMoves, ownerId);
+            }
         }
 
         /// <summary>

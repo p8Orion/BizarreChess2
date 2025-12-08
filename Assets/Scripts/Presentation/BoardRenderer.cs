@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using BizarreChess.Core.Board;
 using BizarreChess.Core.Player;
+using BizarreChess.Core.Units;
 
 namespace BizarreChess.Presentation
 {
@@ -16,6 +17,7 @@ namespace BizarreChess.Presentation
 
         [Header("Colors")]
         [SerializeField] private Color _attackHighlightColor = new Color(1f, 0.5f, 0.5f, 0.5f);
+        [SerializeField] private Color _moveIndicatorColor = new Color(0.3f, 0.8f, 0.3f, 0.9f);
         // Tile colors/textures now come from BoardSkins.Current
 
         [Header("Layout")]
@@ -28,6 +30,11 @@ namespace BizarreChess.Presentation
         private HashSet<int> _highlightedMoves = new HashSet<int>();
         private HashSet<int> _highlightedAttacks = new HashSet<int>();
         private HashSet<int> _highlightedHover = new HashSet<int>();
+        private HashSet<int> _indicatedTiles = new HashSet<int>();
+        
+        // Store selection state for restoring after hover
+        private MoveTargets _currentSelectionMoves;
+        private Color _currentSelectionColor;
 
         public System.Action<int> OnTileClicked;
 
@@ -77,6 +84,13 @@ namespace BizarreChess.Presentation
 
         private void CreatePlaceholderTile(NodeDefinition nodeDef, NodeState nodeState, TileStyle style)
         {
+            // For Impassable tiles, use floor style for the base tile
+            var floorStyle = style;
+            if (nodeState.CurrentType == NodeType.Impassable)
+            {
+                floorStyle = BoardSkins.Current.GetImpassableFloor();
+            }
+
             // Create cube with thickness instead of flat quad
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = $"Tile_{nodeDef.Id}";
@@ -88,7 +102,7 @@ namespace BizarreChess.Presentation
             go.transform.localScale = new Vector3(_tileSize, _tileThickness, _tileSize);
 
             var renderer = go.GetComponent<Renderer>();
-            var mat = CreateTileMaterial(style);
+            var mat = CreateTileMaterial(floorStyle);
             renderer.material = mat;
 
             // Cube already has BoxCollider, just adjust if needed
@@ -103,88 +117,255 @@ namespace BizarreChess.Presentation
 
             // Create a TileRenderer wrapper
             var tileRenderer = go.AddComponent<TileRenderer>();
-            tileRenderer.InitializePlaceholder(nodeDef.Id, renderer, style);
+            tileRenderer.InitializePlaceholder(nodeDef.Id, renderer, floorStyle);
 
             _tiles[nodeDef.Id] = tileRenderer;
             
-            // Add pyramid mesh for Impassable tiles (mountains)
+            // Add wall mesh for Impassable tiles (uses the original Impassable style)
             if (nodeState.CurrentType == NodeType.Impassable)
             {
-                CreateMountainOnTile(go, style);
+                CreateWallOnTile(go, nodeDef, style);
             }
         }
 
         /// <summary>
-        /// Creates a pyramid (mountain) mesh on top of an Impassable tile.
+        /// Creates a wall mesh on top of an Impassable tile.
+        /// Walls extend toward adjacent Impassable tiles to create continuous barriers.
         /// </summary>
-        private void CreateMountainOnTile(GameObject parentTile, TileStyle style)
+        private void CreateWallOnTile(GameObject parentTile, NodeDefinition nodeDef, TileStyle style)
         {
-            var mountainGo = new GameObject("Mountain");
-            mountainGo.transform.SetParent(parentTile.transform);
+            var wallGo = new GameObject("Wall");
+            wallGo.transform.SetParent(parentTile.transform);
             
-            // Position pyramid on top of tile (tile top is at local y=0.5 due to cube scaling)
-            mountainGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
-            mountainGo.transform.localRotation = Quaternion.identity;
-            mountainGo.transform.localScale = Vector3.one; // Scale is baked into mesh
+            // Position wall on top of tile (tile top is at local y=0.5 due to cube scaling)
+            wallGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+            wallGo.transform.localRotation = Quaternion.identity;
+            wallGo.transform.localScale = Vector3.one;
             
-            var meshFilter = mountainGo.AddComponent<MeshFilter>();
-            var meshRenderer = mountainGo.AddComponent<MeshRenderer>();
+            var meshFilter = wallGo.AddComponent<MeshFilter>();
+            var meshRenderer = wallGo.AddComponent<MeshRenderer>();
             
-            // Create pyramid mesh sized relative to tile
-            float pyramidBase = 0.7f;  // 70% of tile size (in local space)
-            float pyramidHeight = 0.8f; // Height in local space
-            meshFilter.mesh = CreatePyramidMesh(pyramidBase, pyramidHeight);
+            // Detect adjacent Impassable tiles
+            var neighbors = GetImpassableNeighbors(nodeDef);
+            
+            // Create wall mesh that extends toward neighbors
+            float wallHeight = 2.4f;  // Wall height (tall barrier)
+            float baseSize = 0.25f;   // Base wall size (smaller, extends to 0.5 when neighbors exist)
+            meshFilter.mesh = CreateWallMesh(baseSize, wallHeight, neighbors);
             
             // Use same material as tile but slightly darker for depth
-            var mountainMat = CreateTileMaterial(style);
-            mountainMat.color = style.Color * 0.85f;
-            meshRenderer.material = mountainMat;
+            var wallMat = CreateTileMaterial(style);
+            wallMat.color = style.Color * 0.85f;
+            meshRenderer.material = wallMat;
         }
 
         /// <summary>
-        /// Creates a simple 4-sided pyramid mesh.
+        /// Checks which adjacent tiles are also Impassable.
+        /// Returns flags for 8 directions: N, NE, E, SE, S, SW, W, NW
         /// </summary>
-        private Mesh CreatePyramidMesh(float baseSize, float height)
+        private bool[] GetImpassableNeighbors(NodeDefinition nodeDef)
+        {
+            var neighbors = new bool[8]; // N, NE, E, SE, S, SW, W, NW
+            
+            if (_boardGraph == null) return neighbors;
+            
+            var coords = _boardGraph.Definition.GetCoordinates(nodeDef.Id);
+            int width = _boardGraph.Definition.Width;
+            int height = _boardGraph.Definition.Height;
+            
+            // Direction offsets: N, NE, E, SE, S, SW, W, NW
+            var offsets = new Vector2Int[]
+            {
+                new Vector2Int(0, 1),   // N
+                new Vector2Int(1, 1),   // NE
+                new Vector2Int(1, 0),   // E
+                new Vector2Int(1, -1),  // SE
+                new Vector2Int(0, -1),  // S
+                new Vector2Int(-1, -1), // SW
+                new Vector2Int(-1, 0),  // W
+                new Vector2Int(-1, 1)   // NW
+            };
+            
+            for (int i = 0; i < 8; i++)
+            {
+                int nx = coords.x + offsets[i].x;
+                int ny = coords.y + offsets[i].y;
+                
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height)
+                    continue;
+                
+                int neighborId = _boardGraph.Definition.GetNodeId(nx, ny);
+                var neighborState = _boardGraph.State.GetNode(neighborId);
+                neighbors[i] = neighborState.IsImpassable;
+            }
+            
+            return neighbors;
+        }
+
+        // Temporary storage for UVs during mesh construction
+        private List<Vector2> _meshUVs;
+
+        /// <summary>
+        /// Creates a wall mesh that extends toward neighboring walls.
+        /// </summary>
+        private Mesh CreateWallMesh(float baseSize, float height, bool[] neighbors)
         {
             var mesh = new Mesh();
-            mesh.name = "Pyramid";
+            mesh.name = "Wall";
             
-            float half = baseSize / 2f;
+            // Calculate extensions based on neighbors
+            // neighbors: N(0), NE(1), E(2), SE(3), S(4), SW(5), W(6), NW(7)
+            float edgeOfTile = 0.5f; // Edge of tile in local space
             
-            // 5 vertices: 4 base corners + 1 apex
-            Vector3[] vertices = new Vector3[]
+            // Start with base size (smaller than tile)
+            float minX = -baseSize;
+            float maxX = baseSize;
+            float minZ = -baseSize;
+            float maxZ = baseSize;
+            
+            // Extend toward orthogonal neighbors (to edge of tile)
+            if (neighbors[0]) maxZ = edgeOfTile;  // N
+            if (neighbors[2]) maxX = edgeOfTile;  // E
+            if (neighbors[4]) minZ = -edgeOfTile; // S
+            if (neighbors[6]) minX = -edgeOfTile; // W
+            
+            var vertices = new List<Vector3>();
+            var triangles = new List<int>();
+            _meshUVs = new List<Vector2>();
+            
+            // Main wall box
+            AddBoxToMesh(vertices, triangles, minX, maxX, minZ, maxZ, 0, height);
+            
+            // Add corner extensions for diagonals
+            // Only add corner if diagonal neighbor exists AND at least one adjacent orthogonal
+            // NE corner (between N and E)
+            if (neighbors[1] && (neighbors[0] || neighbors[2]))
             {
-                // Base corners (y = 0)
-                new Vector3(-half, 0, -half),  // 0: front-left
-                new Vector3(half, 0, -half),   // 1: front-right
-                new Vector3(half, 0, half),    // 2: back-right
-                new Vector3(-half, 0, half),   // 3: back-left
-                // Apex
-                new Vector3(0, height, 0)      // 4: top
-            };
-            
-            // 6 triangles: 4 sides + 2 for base quad
-            int[] triangles = new int[]
+                float cornerMinX = neighbors[2] ? maxX : baseSize;
+                float cornerMaxZ = neighbors[0] ? maxZ : baseSize;
+                AddBoxToMesh(vertices, triangles, cornerMinX, edgeOfTile, cornerMaxZ, edgeOfTile, 0, height);
+            }
+            // SE corner (between E and S)
+            if (neighbors[3] && (neighbors[2] || neighbors[4]))
             {
-                // Front face
-                0, 4, 1,
-                // Right face
-                1, 4, 2,
-                // Back face
-                2, 4, 3,
-                // Left face
-                3, 4, 0,
-                // Base (two triangles)
-                0, 1, 2,
-                0, 2, 3
-            };
+                float cornerMinX = neighbors[2] ? maxX : baseSize;
+                float cornerMinZ = neighbors[4] ? minZ : -baseSize;
+                AddBoxToMesh(vertices, triangles, cornerMinX, edgeOfTile, -edgeOfTile, cornerMinZ, 0, height);
+            }
+            // SW corner (between S and W)
+            if (neighbors[5] && (neighbors[4] || neighbors[6]))
+            {
+                float cornerMaxX = neighbors[6] ? minX : -baseSize;
+                float cornerMinZ = neighbors[4] ? minZ : -baseSize;
+                AddBoxToMesh(vertices, triangles, -edgeOfTile, cornerMaxX, -edgeOfTile, cornerMinZ, 0, height);
+            }
+            // NW corner (between W and N)
+            if (neighbors[7] && (neighbors[6] || neighbors[0]))
+            {
+                float cornerMaxX = neighbors[6] ? minX : -baseSize;
+                float cornerMaxZ = neighbors[0] ? maxZ : baseSize;
+                AddBoxToMesh(vertices, triangles, -edgeOfTile, cornerMaxX, cornerMaxZ, edgeOfTile, 0, height);
+            }
             
-            mesh.vertices = vertices;
-            mesh.triangles = triangles;
+            mesh.vertices = vertices.ToArray();
+            mesh.triangles = triangles.ToArray();
+            mesh.uv = _meshUVs.ToArray();
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
             
             return mesh;
+        }
+
+        /// <summary>
+        /// Adds a box (6 faces) to the mesh vertex and triangle lists with proper UVs.
+        /// Each face gets its own vertices for correct UV mapping.
+        /// </summary>
+        private void AddBoxToMesh(List<Vector3> vertices, List<int> triangles,
+            float minX, float maxX, float minZ, float maxZ, float minY, float maxY)
+        {
+            // We need separate vertices per face for proper UVs (24 vertices instead of 8)
+            int baseIndex = vertices.Count;
+            
+            float width = maxX - minX;
+            float depth = maxZ - minZ;
+            float height = maxY - minY;
+            
+            // Front face (Z = minZ)
+            vertices.Add(new Vector3(minX, minY, minZ));
+            vertices.Add(new Vector3(maxX, minY, minZ));
+            vertices.Add(new Vector3(maxX, maxY, minZ));
+            vertices.Add(new Vector3(minX, maxY, minZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(width, 0));
+            _meshUVs.Add(new Vector2(width, height));
+            _meshUVs.Add(new Vector2(0, height));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
+            
+            // Back face (Z = maxZ)
+            baseIndex = vertices.Count;
+            vertices.Add(new Vector3(maxX, minY, maxZ));
+            vertices.Add(new Vector3(minX, minY, maxZ));
+            vertices.Add(new Vector3(minX, maxY, maxZ));
+            vertices.Add(new Vector3(maxX, maxY, maxZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(width, 0));
+            _meshUVs.Add(new Vector2(width, height));
+            _meshUVs.Add(new Vector2(0, height));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
+            
+            // Right face (X = maxX)
+            baseIndex = vertices.Count;
+            vertices.Add(new Vector3(maxX, minY, minZ));
+            vertices.Add(new Vector3(maxX, minY, maxZ));
+            vertices.Add(new Vector3(maxX, maxY, maxZ));
+            vertices.Add(new Vector3(maxX, maxY, minZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(depth, 0));
+            _meshUVs.Add(new Vector2(depth, height));
+            _meshUVs.Add(new Vector2(0, height));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
+            
+            // Left face (X = minX)
+            baseIndex = vertices.Count;
+            vertices.Add(new Vector3(minX, minY, maxZ));
+            vertices.Add(new Vector3(minX, minY, minZ));
+            vertices.Add(new Vector3(minX, maxY, minZ));
+            vertices.Add(new Vector3(minX, maxY, maxZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(depth, 0));
+            _meshUVs.Add(new Vector2(depth, height));
+            _meshUVs.Add(new Vector2(0, height));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
+            
+            // Top face (Y = maxY)
+            baseIndex = vertices.Count;
+            vertices.Add(new Vector3(minX, maxY, minZ));
+            vertices.Add(new Vector3(maxX, maxY, minZ));
+            vertices.Add(new Vector3(maxX, maxY, maxZ));
+            vertices.Add(new Vector3(minX, maxY, maxZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(width, 0));
+            _meshUVs.Add(new Vector2(width, depth));
+            _meshUVs.Add(new Vector2(0, depth));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
+            
+            // Bottom face (Y = minY)
+            baseIndex = vertices.Count;
+            vertices.Add(new Vector3(minX, minY, maxZ));
+            vertices.Add(new Vector3(maxX, minY, maxZ));
+            vertices.Add(new Vector3(maxX, minY, minZ));
+            vertices.Add(new Vector3(minX, minY, minZ));
+            _meshUVs.Add(new Vector2(0, 0));
+            _meshUVs.Add(new Vector2(width, 0));
+            _meshUVs.Add(new Vector2(width, depth));
+            _meshUVs.Add(new Vector2(0, depth));
+            triangles.Add(baseIndex + 0); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1); triangles.Add(baseIndex + 3); triangles.Add(baseIndex + 2);
         }
         
         private Material CreateTileMaterial(TileStyle style)
@@ -268,6 +449,7 @@ namespace BizarreChess.Presentation
             _highlightedMoves.Clear();
             _highlightedAttacks.Clear();
             _highlightedHover.Clear();
+            _indicatedTiles.Clear();
         }
 
         #endregion
@@ -276,12 +458,12 @@ namespace BizarreChess.Presentation
 
         private Color GetSelectionColor(int ownerId)
         {
-            return PlayerColors.Get(ownerId).SelectHighlight;
+            return PlayerColors.Get(ownerId).PrimaryColor;
         }
 
         private Color GetHoverColor(int ownerId)
         {
-            return PlayerColors.Get(ownerId).HoverHighlight;
+            return PlayerColors.Get(ownerId).SecondaryColor;
         }
 
         /// <summary>
@@ -338,6 +520,107 @@ namespace BizarreChess.Presentation
         }
 
         /// <summary>
+        /// Show categorized move indicators for hover (circle for move, ring for capture) in secondary color.
+        /// Hover has PRIORITY over selection - it will override selection indicators.
+        /// </summary>
+        public void ShowCategorizedHoverMoves(MoveTargets moves, int ownerId = 0)
+        {
+            ClearHoverHighlights();
+
+            Color hoverColor = GetHoverColor(ownerId);
+
+            // Move-only: solid circle (hover has priority, overrides selection)
+            foreach (var nodeId in moves.MoveOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.MoveOnly, hoverColor);
+                    _highlightedHover.Add(nodeId);
+                }
+            }
+
+            // Capture-only: ring
+            foreach (var nodeId in moves.CaptureOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, hoverColor);
+                    _highlightedHover.Add(nodeId);
+                }
+            }
+
+            // Both: circle + ring
+            foreach (var nodeId in moves.Both)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.Both, hoverColor);
+                    _highlightedHover.Add(nodeId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Show categorized move indicators (circle for move, ring for capture).
+        /// </summary>
+        public void ShowCategorizedMoves(MoveTargets moves, int ownerId = 0)
+        {
+            ClearHighlights();
+            ClearMoveIndicators();
+
+            Color indicatorColor = GetSelectionColor(ownerId);
+            
+            // Store selection state for restoring after hover
+            _currentSelectionMoves = moves;
+            _currentSelectionColor = indicatorColor;
+
+            // Move-only: solid circle
+            foreach (var nodeId in moves.MoveOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.MoveOnly, indicatorColor);
+                    _indicatedTiles.Add(nodeId);
+                }
+            }
+
+            // Capture-only: ring
+            foreach (var nodeId in moves.CaptureOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, indicatorColor);
+                    _indicatedTiles.Add(nodeId);
+                }
+            }
+
+            // Both: circle + ring
+            foreach (var nodeId in moves.Both)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.Both, indicatorColor);
+                    _indicatedTiles.Add(nodeId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clear all move indicators.
+        /// </summary>
+        public void ClearMoveIndicators()
+        {
+            foreach (var nodeId in _indicatedTiles)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.ClearMoveIndicator();
+                }
+            }
+            _indicatedTiles.Clear();
+        }
+
+        /// <summary>
         /// Clear selection highlights only.
         /// </summary>
         public void ClearHighlights()
@@ -359,10 +642,15 @@ namespace BizarreChess.Presentation
                 }
             }
             _highlightedAttacks.Clear();
+
+            ClearMoveIndicators();
+            
+            // Clear stored selection state
+            _currentSelectionMoves = null;
         }
 
         /// <summary>
-        /// Clear hover highlights only.
+        /// Clear hover highlights only and restore selection indicators.
         /// </summary>
         public void ClearHoverHighlights()
         {
@@ -371,9 +659,42 @@ namespace BizarreChess.Presentation
                 if (_tiles.TryGetValue(nodeId, out var tile))
                 {
                     tile.SetHoverHighlight(false, Color.white);
+                    tile.ClearMoveIndicator();
                 }
             }
             _highlightedHover.Clear();
+            
+            // Restore selection indicators that may have been overwritten by hover
+            RestoreSelectionIndicators();
+        }
+
+        private void RestoreSelectionIndicators()
+        {
+            if (_currentSelectionMoves == null) return;
+
+            foreach (var nodeId in _currentSelectionMoves.MoveOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.MoveOnly, _currentSelectionColor);
+                }
+            }
+
+            foreach (var nodeId in _currentSelectionMoves.CaptureOnly)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.CaptureOnly, _currentSelectionColor);
+                }
+            }
+
+            foreach (var nodeId in _currentSelectionMoves.Both)
+            {
+                if (_tiles.TryGetValue(nodeId, out var tile))
+                {
+                    tile.SetMoveIndicator(MoveIndicatorType.Both, _currentSelectionColor);
+                }
+            }
         }
 
         #endregion

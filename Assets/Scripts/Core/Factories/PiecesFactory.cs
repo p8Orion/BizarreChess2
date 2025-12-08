@@ -35,7 +35,7 @@ namespace BizarreChess.Core.Factories
         public static Dictionary<string, UnitDefinition> GetAll()
         {
             // Ensure all pieces are cached
-            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Pawn" };
+            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn" };
             foreach (var name in allNames)
                 Get(name);
 
@@ -63,6 +63,7 @@ namespace BizarreChess.Core.Factories
                 "Bishop" => CreateBishopDefinition(),
                 "Knight" => CreateKnightDefinition(),
                 "Camel" => CreateCamelDefinition(),
+                "Crossbowman" => CreateCrossbowmanDefinition(),
                 "Pawn" => CreatePawnDefinition(),
                 _ => null
             };
@@ -287,6 +288,44 @@ namespace BizarreChess.Core.Factories
             ApplyPieceTextures(camel, "Camel");
 
             return camel;
+        }
+
+        private static UnitDefinition CreateCrossbowmanDefinition()
+        {
+            var crossbowman = ScriptableObject.CreateInstance<UnitDefinition>();
+            crossbowman.UnitId = "Crossbowman";
+            crossbowman.DisplayName = "Crossbowman";
+            crossbowman.PieceType = PieceType.Custom;
+            crossbowman.BaseCost = 4;
+
+            crossbowman.BaseStats = new UnitBaseStats
+            {
+                Health = 35,
+                Attack = 9,
+                Defense = 2,
+                Speed = 4,
+                Range = 3,
+                Movement = 1
+            };
+
+            crossbowman.GrowthStats = UnitGrowthStats.Default;
+
+            crossbowman.MovementPatterns = new List<MovementPattern>
+            {
+                // Moves like a king (1 square any direction)
+                new MovementPattern(MovementType.Adjacent, 1) { MoveOnly = true },
+                // Captures like a bishop but max 3 squares
+                new MovementPattern(MovementType.Diagonal, 3) { CaptureOnly = true }
+            };
+
+            // No standard unicode for Crossbowman, use Pawn as fallback
+            crossbowman.UnicodeWhite = '♙';
+            crossbowman.UnicodeBlack = '♟';
+
+            // 3D Rendering
+            ApplyPieceTextures(crossbowman, "Crossbowman");
+
+            return crossbowman;
         }
 
         private static UnitDefinition CreatePawnDefinition()

@@ -170,13 +170,37 @@ namespace BizarreChess.Presentation.UnitRenderer
                 if (selected)
                 {
                     _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use selection color from centralized PlayerColors
+                    // Use PRIMARY color for selection highlight
                     var colorScheme = PlayerColors.Get(_currentState.OwnerId);
-                    Color emissionColor = colorScheme.SelectHighlight * 0.8f;
+                    Color emissionColor = colorScheme.PrimaryColor * 0.8f;
                     _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
                 }
                 else
                 {
+                    _meshRenderer.material.DisableKeyword("_EMISSION");
+                    _meshRenderer.material.SetColor("_EmissionColor", Color.black);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Mark this unit as a capturable target (enemy that can be captured).
+        /// </summary>
+        public void SetCapturable(bool capturable, int attackerOwnerId)
+        {
+            if (_meshRenderer != null && _meshRenderer.material != null)
+            {
+                if (capturable)
+                {
+                    _meshRenderer.material.EnableKeyword("_EMISSION");
+                    // Use attacker's PRIMARY color to show it's a valid target
+                    var colorScheme = PlayerColors.Get(attackerOwnerId);
+                    Color emissionColor = colorScheme.PrimaryColor * 0.6f;
+                    _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
+                }
+                else if (!_isSelected)
+                {
+                    // Only disable if not currently selected
                     _meshRenderer.material.DisableKeyword("_EMISSION");
                     _meshRenderer.material.SetColor("_EmissionColor", Color.black);
                 }

@@ -1,9 +1,19 @@
 using UnityEngine;
 using BizarreChess.Core.Board;
-using BizarreChess.Core.Board;
 
 namespace BizarreChess.Presentation
 {
+    /// <summary>
+    /// Type of move indicator to display on a tile.
+    /// </summary>
+    public enum MoveIndicatorType
+    {
+        None,
+        MoveOnly,      // Solid circle (can move but not capture)
+        CaptureOnly,   // Ring (can capture but not move to empty)
+        Both           // Circle inside ring (can both move and capture)
+    }
+
     /// <summary>
     /// Renders a single tile on the board.
     /// Supports two layers of highlight: selection (opaque) and hover (transparent).
@@ -27,6 +37,11 @@ namespace BizarreChess.Presentation
         private Color _selectionColor;
         private bool _isHoverHighlighted;
         private Color _hoverColor;
+        
+        // Move indicator objects (created dynamically)
+        private GameObject _moveCircle;
+        private GameObject _captureRing;
+        private MoveIndicatorType _currentIndicator = MoveIndicatorType.None;
 
         public void Initialize(NodeDefinition nodeDef, NodeState nodeState, TileStyle style, float size)
         {
@@ -203,6 +218,239 @@ namespace BizarreChess.Presentation
                 _ => ""
             };
         }
+
+        #region Move Indicators
+
+        /// <summary>
+        /// Show move indicator (circle for move, ring for capture, both for normal).
+        /// </summary>
+        public void SetMoveIndicator(MoveIndicatorType type, Color color)
+        {
+            if (_currentIndicator == type && type == MoveIndicatorType.None)
+                return;
+
+            _currentIndicator = type;
+
+            // Create indicators if needed
+            EnsureIndicatorsCreated();
+
+            // Show/hide based on type
+            bool showCircle = type == MoveIndicatorType.MoveOnly || type == MoveIndicatorType.Both;
+            bool showRing = type == MoveIndicatorType.CaptureOnly || type == MoveIndicatorType.Both;
+
+            if (_moveCircle != null)
+            {
+                _moveCircle.SetActive(showCircle);
+                if (showCircle)
+                {
+                    var renderer = _moveCircle.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                        ApplyColorToMaterial(renderer.material, color);
+                }
+            }
+
+            if (_captureRing != null)
+            {
+                _captureRing.SetActive(showRing);
+                if (showRing)
+                {
+                    // Same color as circle: select = primary, hover = secondary
+                    var renderer = _captureRing.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                        ApplyColorToMaterial(renderer.material, color);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clear all move indicators.
+        /// </summary>
+        public void ClearMoveIndicator()
+        {
+            SetMoveIndicator(MoveIndicatorType.None, Color.white);
+        }
+
+        private void EnsureIndicatorsCreated()
+        {
+            if (_moveCircle == null)
+            {
+                // Circle radius matches inner radius of ring so they fit together
+                _moveCircle = CreateCircleIndicator("MoveCircle", 0.34f, 0f);
+            }
+            if (_captureRing == null)
+            {
+                _captureRing = CreateRingIndicator("CaptureRing", 0.45f, 0.35f);
+            }
+        }
+
+        private GameObject CreateCircleIndicator(string name, float radius, float unused)
+        {
+            var go = new GameObject(name);
+            
+            // Create quad mesh for decal
+            var meshFilter = go.AddComponent<MeshFilter>();
+            var meshRenderer = go.AddComponent<MeshRenderer>();
+            
+            meshFilter.mesh = CreateQuadMesh();
+            meshRenderer.material = CreateDecalMaterial(CreateCircleTexture(128));
+            meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            meshRenderer.receiveShadows = false;
+            
+            // Position just above tile surface
+            Vector3 tileWorldPos = transform.position;
+            float tileTopY = tileWorldPos.y + transform.lossyScale.y * 0.5f + 0.01f;
+            go.transform.position = new Vector3(tileWorldPos.x, tileTopY, tileWorldPos.z);
+            go.transform.rotation = Quaternion.Euler(90, 0, 0); // Face up
+            go.transform.localScale = new Vector3(radius * 2f, radius * 2f, 1f);
+            
+            // Parent while keeping world transform
+            go.transform.SetParent(transform, worldPositionStays: true);
+
+            go.SetActive(false);
+            return go;
+        }
+
+        private GameObject CreateRingIndicator(string name, float outerRadius, float innerRadius)
+        {
+            var go = new GameObject(name);
+            
+            // Create quad mesh for decal
+            var meshFilter = go.AddComponent<MeshFilter>();
+            var meshRenderer = go.AddComponent<MeshRenderer>();
+            
+            meshFilter.mesh = CreateQuadMesh();
+            meshRenderer.material = CreateDecalMaterial(CreateRingTexture(128, innerRadius / outerRadius));
+            meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            meshRenderer.receiveShadows = false;
+            
+            // Position just above tile surface
+            Vector3 tileWorldPos = transform.position;
+            float tileTopY = tileWorldPos.y + transform.lossyScale.y * 0.5f + 0.01f;
+            go.transform.position = new Vector3(tileWorldPos.x, tileTopY, tileWorldPos.z);
+            go.transform.rotation = Quaternion.Euler(90, 0, 0); // Face up
+            go.transform.localScale = new Vector3(outerRadius * 2f, outerRadius * 2f, 1f);
+            
+            // Parent while keeping world transform
+            go.transform.SetParent(transform, worldPositionStays: true);
+
+            go.SetActive(false);
+            return go;
+        }
+
+        private Mesh CreateQuadMesh()
+        {
+            var mesh = new Mesh();
+            
+            mesh.vertices = new Vector3[]
+            {
+                new Vector3(-0.5f, -0.5f, 0),
+                new Vector3(0.5f, -0.5f, 0),
+                new Vector3(0.5f, 0.5f, 0),
+                new Vector3(-0.5f, 0.5f, 0)
+            };
+            
+            mesh.uv = new Vector2[]
+            {
+                new Vector2(0, 0),
+                new Vector2(1, 0),
+                new Vector2(1, 1),
+                new Vector2(0, 1)
+            };
+            
+            mesh.triangles = new int[] { 0, 2, 1, 0, 3, 2 };
+            mesh.normals = new Vector3[] { Vector3.back, Vector3.back, Vector3.back, Vector3.back };
+            
+            return mesh;
+        }
+
+        private Texture2D CreateCircleTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float center = size / 2f;
+            float radius = size / 2f - 2f;
+            
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), new Vector2(center, center));
+                    
+                    if (dist <= radius)
+                    {
+                        // Soft edge - 60% transparency
+                        float alpha = Mathf.Clamp01((radius - dist) / 3f);
+                        tex.SetPixel(x, y, new Color(1, 1, 1, alpha * 0.6f));
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, Color.clear);
+                    }
+                }
+            }
+            
+            tex.Apply();
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
+        }
+
+        private Texture2D CreateRingTexture(int size, float innerRatio)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float center = size / 2f;
+            float outerRadius = size / 2f - 2f;
+            float innerRadius = outerRadius * innerRatio;
+            
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), new Vector2(center, center));
+                    
+                    if (dist <= outerRadius && dist >= innerRadius)
+                    {
+                        // Soft edges on both inner and outer - 60% transparency
+                        float outerAlpha = Mathf.Clamp01((outerRadius - dist) / 3f);
+                        float innerAlpha = Mathf.Clamp01((dist - innerRadius) / 3f);
+                        float alpha = Mathf.Min(outerAlpha, innerAlpha);
+                        tex.SetPixel(x, y, new Color(1, 1, 1, alpha * 0.6f));
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, Color.clear);
+                    }
+                }
+            }
+            
+            tex.Apply();
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
+        }
+
+        private Material CreateDecalMaterial(Texture2D texture)
+        {
+            // Use transparent/unlit shader
+            Shader shader = Shader.Find("Sprites/Default");
+            if (shader == null)
+                shader = Shader.Find("Unlit/Transparent");
+            if (shader == null)
+                shader = Shader.Find("Universal Render Pipeline/Unlit");
+            
+            var mat = new Material(shader);
+            mat.mainTexture = texture;
+            mat.color = Color.white;
+            
+            // Render on top of tiles
+            mat.renderQueue = 3000;
+            
+            return mat;
+        }
+
+        private void ApplyColorToMaterial(Material mat, Color color)
+        {
+            mat.color = color;
+        }
+
+        #endregion
 
         // Click handling moved to InputHandler (OnMouseDown uses old Input system)
     }

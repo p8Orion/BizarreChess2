@@ -68,7 +68,16 @@ namespace BizarreChess.Core.Units
         public List<int> GetAllValidMoves(Board.BoardGraph board, int fromNode, int playerSide,
             Func<int, bool> isOccupied, Func<int, bool> isEnemy, bool hasMoved = false)
         {
-            var result = new List<int>();
+            return GetAllCategorizedMoves(board, fromNode, playerSide, isOccupied, isEnemy, hasMoved).GetAll();
+        }
+
+        /// <summary>
+        /// Get all valid target nodes categorized by type (move-only, capture-only, both).
+        /// </summary>
+        public MoveTargets GetAllCategorizedMoves(Board.BoardGraph board, int fromNode, int playerSide,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy, bool hasMoved = false)
+        {
+            var result = new MoveTargets();
             var seen = new HashSet<int>();
 
             foreach (var pattern in MovementPatterns)
@@ -77,15 +86,8 @@ namespace BizarreChess.Core.Units
                 if (pattern.FirstMoveOnly && hasMoved)
                     continue;
 
-                var targets = pattern.GetValidTargets(board, fromNode, playerSide, isOccupied, isEnemy);
-                foreach (var target in targets)
-                {
-                    if (!seen.Contains(target))
-                    {
-                        seen.Add(target);
-                        result.Add(target);
-                    }
-                }
+                var targets = pattern.GetCategorizedTargets(board, fromNode, playerSide, isOccupied, isEnemy);
+                result.Merge(targets, seen);
             }
 
             return result;

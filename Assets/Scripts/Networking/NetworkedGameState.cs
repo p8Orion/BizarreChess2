@@ -551,17 +551,25 @@ namespace BizarreChess.Networking
         /// </summary>
         public List<int> GetValidMovesForUnit(int unitId)
         {
+            return GetCategorizedMovesForUnit(unitId)?.GetAll() ?? new List<int>();
+        }
+
+        /// <summary>
+        /// Get categorized valid moves for a unit (move-only, capture-only, both).
+        /// </summary>
+        public MoveTargets GetCategorizedMovesForUnit(int unitId)
+        {
             if (_gameState == null || _moveValidator == null)
-                return new List<int>();
+                return new MoveTargets();
 
             var unit = _gameState.GetUnit(unitId);
             if (unit == null)
-                return new List<int>();
+                return new MoveTargets();
 
             if (!_chessSetup.Pieces.TryGetValue(unit.DefinitionId, out var definition))
-                return new List<int>();
+                return new MoveTargets();
 
-            return _moveValidator.GetValidMovesForUnit(unit, definition, _gameState.Units);
+            return _moveValidator.GetCategorizedMovesForUnit(unit, definition, _gameState.Units);
         }
 
         /// <summary>

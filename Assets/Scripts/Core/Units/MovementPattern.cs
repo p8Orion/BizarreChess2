@@ -6,6 +6,51 @@ using BizarreChess.Core.Board;
 namespace BizarreChess.Core.Units
 {
     /// <summary>
+    /// Categorized movement targets for visualization.
+    /// </summary>
+    public class MoveTargets
+    {
+        /// <summary>Squares where the unit can move but NOT capture (e.g., pawn forward)</summary>
+        public List<int> MoveOnly = new List<int>();
+        
+        /// <summary>Squares where the unit can capture but NOT move to if empty (e.g., crossbowman diagonal)</summary>
+        public List<int> CaptureOnly = new List<int>();
+        
+        /// <summary>Squares where the unit can both move and capture (normal behavior)</summary>
+        public List<int> Both = new List<int>();
+
+        /// <summary>Get all valid targets combined (for compatibility)</summary>
+        public List<int> GetAll()
+        {
+            var result = new List<int>(MoveOnly.Count + CaptureOnly.Count + Both.Count);
+            result.AddRange(MoveOnly);
+            result.AddRange(CaptureOnly);
+            result.AddRange(Both);
+            return result;
+        }
+
+        /// <summary>Check if any targets exist</summary>
+        public bool HasAny => MoveOnly.Count > 0 || CaptureOnly.Count > 0 || Both.Count > 0;
+
+        /// <summary>Merge another MoveTargets into this one</summary>
+        public void Merge(MoveTargets other, HashSet<int> seen)
+        {
+            foreach (var node in other.MoveOnly)
+            {
+                if (!seen.Contains(node)) { seen.Add(node); MoveOnly.Add(node); }
+            }
+            foreach (var node in other.CaptureOnly)
+            {
+                if (!seen.Contains(node)) { seen.Add(node); CaptureOnly.Add(node); }
+            }
+            foreach (var node in other.Both)
+            {
+                if (!seen.Contains(node)) { seen.Add(node); Both.Add(node); }
+            }
+        }
+    }
+
+    /// <summary>
     /// Defines how a unit can move on the board.
     /// </summary>
     [Serializable]
@@ -58,39 +103,47 @@ namespace BizarreChess.Core.Units
         /// </summary>
         public List<int> GetValidTargets(BoardGraph board, int fromNode, int playerSide, Func<int, bool> isOccupied, Func<int, bool> isEnemy)
         {
-            var result = new List<int>();
+            return GetCategorizedTargets(board, fromNode, playerSide, isOccupied, isEnemy).GetAll();
+        }
+
+        /// <summary>
+        /// Get categorized targets (move-only, capture-only, both) for this movement pattern.
+        /// </summary>
+        public MoveTargets GetCategorizedTargets(BoardGraph board, int fromNode, int playerSide, Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var result = new MoveTargets();
             int maxDist = MaxDistance == -1 ? 100 : MaxDistance;
 
             switch (Type)
             {
                 case MovementType.Orthogonal:
-                    AddLineTargets(result, board, fromNode, new Vector2Int(1, 0), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(-1, 0), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(0, 1), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(0, -1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(1, 0), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(-1, 0), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(0, 1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(0, -1), maxDist, isOccupied, isEnemy);
                     break;
 
                 case MovementType.Diagonal:
-                    AddLineTargets(result, board, fromNode, new Vector2Int(1, 1), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(1, -1), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(-1, 1), maxDist, isOccupied, isEnemy);
-                    AddLineTargets(result, board, fromNode, new Vector2Int(-1, -1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(1, 1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(1, -1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(-1, 1), maxDist, isOccupied, isEnemy);
+                    AddLineCategorized(result, board, fromNode, new Vector2Int(-1, -1), maxDist, isOccupied, isEnemy);
                     break;
 
                 case MovementType.Leaper:
-                    AddLeaperTargets(result, board, fromNode, LeapX, LeapY, isOccupied, isEnemy);
+                    AddLeaperCategorized(result, board, fromNode, LeapX, LeapY, isOccupied, isEnemy);
                     break;
 
                 case MovementType.Adjacent:
-                    AddAdjacentTargets(result, board, fromNode, maxDist, isOccupied, isEnemy);
+                    AddAdjacentCategorized(result, board, fromNode, isOccupied, isEnemy);
                     break;
 
                 case MovementType.Forward:
-                    AddForwardTargets(result, board, fromNode, playerSide, maxDist, isOccupied, isEnemy);
+                    AddForwardCategorized(result, board, fromNode, playerSide, maxDist, isOccupied);
                     break;
 
                 case MovementType.DiagonalCapture:
-                    AddDiagonalCaptureTargets(result, board, fromNode, playerSide, isEnemy);
+                    AddDiagonalCaptureCategorized(result, board, fromNode, playerSide, isEnemy);
                     break;
             }
 
@@ -173,14 +226,21 @@ namespace BizarreChess.Core.Units
                 if (!board.IsPassable(nodeId))
                     continue;
 
-                if (isOccupied(nodeId) && !isEnemy(nodeId))
-                    continue; // Can't move to friendly occupied square
-
                 // Check if leap path is blocked by Impassable terrain
                 if (IsLeapPathBlocked(board, coords, offset))
                     continue;
 
-                result.Add(nodeId);
+                if (isOccupied(nodeId))
+                {
+                    // Can capture enemy only if not MoveOnly
+                    if (isEnemy(nodeId) && !MoveOnly)
+                        result.Add(nodeId);
+                    continue;
+                }
+
+                // Can move to empty square only if not CaptureOnly
+                if (!CaptureOnly)
+                    result.Add(nodeId);
             }
         }
 
@@ -280,10 +340,17 @@ namespace BizarreChess.Core.Units
                 if (!board.IsPassable(nodeId))
                     continue;
 
-                if (isOccupied(nodeId) && !isEnemy(nodeId))
+                if (isOccupied(nodeId))
+                {
+                    // Can capture enemy only if not MoveOnly
+                    if (isEnemy(nodeId) && !MoveOnly)
+                        result.Add(nodeId);
                     continue;
+                }
 
-                result.Add(nodeId);
+                // Can move to empty square only if not CaptureOnly
+                if (!CaptureOnly)
+                    result.Add(nodeId);
             }
         }
 
@@ -339,6 +406,209 @@ namespace BizarreChess.Core.Units
                 }
             }
         }
+
+        #region Categorized Movement Methods
+
+        private void AddLineCategorized(MoveTargets result, BoardGraph board, int fromNode, Vector2Int dir, int maxDist,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+
+            for (int i = 1; i <= maxDist; i++)
+            {
+                int x = coords.x + dir.x * i;
+                int y = coords.y + dir.y * i;
+
+                if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                    break;
+
+                int nodeId = board.Definition.GetNodeId(x, y);
+
+                if (!board.IsPassable(nodeId))
+                    break;
+
+                if (isOccupied(nodeId))
+                {
+                    // Occupied by enemy - can we capture?
+                    if (isEnemy(nodeId) && !MoveOnly)
+                    {
+                        if (CaptureOnly)
+                            result.CaptureOnly.Add(nodeId);
+                        else
+                            result.Both.Add(nodeId); // Normal piece can both move and capture here
+                    }
+                    
+                    if (!CanJump)
+                        break;
+                    continue;
+                }
+
+                // Empty square
+                if (CaptureOnly)
+                    result.CaptureOnly.Add(nodeId); // Can capture here if enemy arrives
+                else if (MoveOnly)
+                    result.MoveOnly.Add(nodeId);
+                else
+                    result.Both.Add(nodeId);
+            }
+        }
+
+        private void AddLeaperCategorized(MoveTargets result, BoardGraph board, int fromNode,
+            int leapX, int leapY, Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+            
+            var offsets = new List<Vector2Int>
+            {
+                new Vector2Int(leapX, leapY), new Vector2Int(leapX, -leapY),
+                new Vector2Int(-leapX, leapY), new Vector2Int(-leapX, -leapY)
+            };
+            
+            if (leapX != leapY)
+            {
+                offsets.Add(new Vector2Int(leapY, leapX));
+                offsets.Add(new Vector2Int(leapY, -leapX));
+                offsets.Add(new Vector2Int(-leapY, leapX));
+                offsets.Add(new Vector2Int(-leapY, -leapX));
+            }
+
+            foreach (var offset in offsets)
+            {
+                int x = coords.x + offset.x;
+                int y = coords.y + offset.y;
+
+                if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                    continue;
+
+                int nodeId = board.Definition.GetNodeId(x, y);
+
+                if (!board.IsPassable(nodeId))
+                    continue;
+
+                if (IsLeapPathBlocked(board, coords, offset))
+                    continue;
+
+                if (isOccupied(nodeId))
+                {
+                    if (isEnemy(nodeId) && !MoveOnly)
+                    {
+                        if (CaptureOnly)
+                            result.CaptureOnly.Add(nodeId);
+                        else
+                            result.Both.Add(nodeId);
+                    }
+                    continue;
+                }
+
+                // Empty square
+                if (CaptureOnly)
+                    result.CaptureOnly.Add(nodeId);
+                else if (MoveOnly)
+                    result.MoveOnly.Add(nodeId);
+                else
+                    result.Both.Add(nodeId);
+            }
+        }
+
+        private void AddAdjacentCategorized(MoveTargets result, BoardGraph board, int fromNode,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+            var directions = new Vector2Int[]
+            {
+                new Vector2Int(1, 0), new Vector2Int(-1, 0),
+                new Vector2Int(0, 1), new Vector2Int(0, -1),
+                new Vector2Int(1, 1), new Vector2Int(1, -1),
+                new Vector2Int(-1, 1), new Vector2Int(-1, -1)
+            };
+
+            foreach (var dir in directions)
+            {
+                int x = coords.x + dir.x;
+                int y = coords.y + dir.y;
+
+                if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                    continue;
+
+                int nodeId = board.Definition.GetNodeId(x, y);
+
+                if (!board.IsPassable(nodeId))
+                    continue;
+
+                if (isOccupied(nodeId))
+                {
+                    if (isEnemy(nodeId) && !MoveOnly)
+                    {
+                        if (CaptureOnly)
+                            result.CaptureOnly.Add(nodeId);
+                        else
+                            result.Both.Add(nodeId);
+                    }
+                    continue;
+                }
+
+                // Empty square
+                if (CaptureOnly)
+                    result.CaptureOnly.Add(nodeId);
+                else if (MoveOnly)
+                    result.MoveOnly.Add(nodeId);
+                else
+                    result.Both.Add(nodeId);
+            }
+        }
+
+        private void AddForwardCategorized(MoveTargets result, BoardGraph board, int fromNode, int playerSide, int maxDist,
+            Func<int, bool> isOccupied)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+            int forwardDir = playerSide == 0 ? 1 : -1;
+
+            for (int i = 1; i <= maxDist; i++)
+            {
+                int y = coords.y + forwardDir * i;
+
+                if (y < 0 || y >= board.Definition.Height)
+                    break;
+
+                int nodeId = board.Definition.GetNodeId(coords.x, y);
+
+                if (!board.IsPassable(nodeId))
+                    break;
+
+                if (isOccupied(nodeId))
+                    break; // Pawn can't capture forward
+
+                // Forward is always move-only (pawn behavior)
+                result.MoveOnly.Add(nodeId);
+            }
+        }
+
+        private void AddDiagonalCaptureCategorized(MoveTargets result, BoardGraph board, int fromNode, int playerSide,
+            Func<int, bool> isEnemy)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+            int forwardDir = playerSide == 0 ? 1 : -1;
+
+            var offsets = new int[] { -1, 1 };
+            foreach (var xOffset in offsets)
+            {
+                int x = coords.x + xOffset;
+                int y = coords.y + forwardDir;
+
+                if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                    continue;
+
+                int nodeId = board.Definition.GetNodeId(x, y);
+
+                if (!board.IsPassable(nodeId))
+                    continue;
+
+                // Always show as capture-only zone (can capture here if enemy present)
+                result.CaptureOnly.Add(nodeId);
+            }
+        }
+
+        #endregion
     }
 
     public enum MovementType

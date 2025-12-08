@@ -3,6 +3,9 @@ using System.Linq;
 using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 
+// Re-export MoveTargets for convenience
+using MoveTargets = BizarreChess.Core.Units.MoveTargets;
+
 namespace BizarreChess.Core.Rules
 {
     /// <summary>
@@ -71,10 +74,18 @@ namespace BizarreChess.Core.Rules
         /// </summary>
         public List<int> GetValidMovesForUnit(UnitState unit, UnitDefinition definition, List<UnitState> allUnits)
         {
+            return GetCategorizedMovesForUnit(unit, definition, allUnits).GetAll();
+        }
+
+        /// <summary>
+        /// Get categorized valid moves for a unit (move-only, capture-only, both).
+        /// </summary>
+        public MoveTargets GetCategorizedMovesForUnit(UnitState unit, UnitDefinition definition, List<UnitState> allUnits)
+        {
             bool IsOccupied(int nodeId) => allUnits.Any(u => u.IsAlive && u.CurrentNodeId == nodeId);
             bool IsEnemy(int nodeId) => allUnits.Any(u => u.IsAlive && u.CurrentNodeId == nodeId && u.OwnerId != unit.OwnerId);
 
-            return definition.GetAllValidMoves(
+            return definition.GetAllCategorizedMoves(
                 _board,
                 unit.CurrentNodeId,
                 unit.OwnerId,

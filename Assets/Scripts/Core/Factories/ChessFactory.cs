@@ -35,8 +35,8 @@ namespace BizarreChess.Core.Factories
             var board = BoardFactory.CreateBoardWithAbyss(
                 sizeX: 8,
                 sizeY: 10,
-                abyssPercentage: 10,  // 20% de los tiles elegibles serán abismo
-                impassablePercentage: 40,
+                abyssPercentage: 5,  // 20% de los tiles elegibles serán abismo
+                impassablePercentage: 5,
                 seed: seed            // Seed para reproducibilidad
             );
             var classicArmy = ArmyFactory.CreateClassicArmy();
@@ -45,7 +45,7 @@ namespace BizarreChess.Core.Factories
             var setup = new ChessSetup
             {   
                 Board = board,
-                PlayerArmies = new List<ArmyDefinition> { classicArmy, camelArmy },
+                PlayerArmies = new List<ArmyDefinition> { camelArmy, camelArmy },
                 PlayerColorSchemes = new List<PlayerColorScheme> { 
                     new PlayerColorScheme(new Color(0f, 0.75f, 0), new Color(0f, 0.75f, 0.75f), "Wood4"), 
                     new PlayerColorScheme(new Color(0.75f, 0, 0), new Color(0.75f, 0.75f, 0f), "Wood5"),   
