@@ -9,9 +9,10 @@ namespace BizarreChess.Presentation
     public enum MoveIndicatorType
     {
         None,
-        MoveOnly,      // Solid circle (can move but not capture)
-        CaptureOnly,   // Ring (can capture but not move to empty)
-        Both           // Circle inside ring (can both move and capture)
+        MoveOnly,       // Solid circle (can move but not capture)
+        CaptureOnly,    // Ring (can capture but not move to empty)
+        Both,           // Circle inside ring (can both move and capture)
+        RangedCapture   // Ring for ranged capture (unit doesn't move when capturing)
     }
 
     /// <summary>
@@ -223,6 +224,7 @@ namespace BizarreChess.Presentation
 
         /// <summary>
         /// Show move indicator (circle for move, ring for capture, both for normal).
+        /// RangedCapture uses the same ring as CaptureOnly.
         /// </summary>
         public void SetMoveIndicator(MoveIndicatorType type, Color color)
         {
@@ -234,9 +236,9 @@ namespace BizarreChess.Presentation
             // Create indicators if needed
             EnsureIndicatorsCreated();
 
-            // Show/hide based on type
+            // Show/hide based on type (RangedCapture shows ring like CaptureOnly)
             bool showCircle = type == MoveIndicatorType.MoveOnly || type == MoveIndicatorType.Both;
-            bool showRing = type == MoveIndicatorType.CaptureOnly || type == MoveIndicatorType.Both;
+            bool showRing = type == MoveIndicatorType.CaptureOnly || type == MoveIndicatorType.Both || type == MoveIndicatorType.RangedCapture;
 
             if (_moveCircle != null)
             {
@@ -254,7 +256,6 @@ namespace BizarreChess.Presentation
                 _captureRing.SetActive(showRing);
                 if (showRing)
                 {
-                    // Same color as circle: select = primary, hover = secondary
                     var renderer = _captureRing.GetComponent<MeshRenderer>();
                     if (renderer != null)
                         ApplyColorToMaterial(renderer.material, color);

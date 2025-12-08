@@ -19,20 +19,27 @@ namespace BizarreChess.Core.Units
         /// <summary>Squares where the unit can both move and capture (normal behavior)</summary>
         public List<int> Both = new List<int>();
 
+        /// <summary>Squares where the unit can capture at range without moving (e.g., Crossbowman)</summary>
+        public List<int> RangedCapture = new List<int>();
+
         /// <summary>Get all valid targets combined (for compatibility)</summary>
         public List<int> GetAll()
         {
-            var result = new List<int>(MoveOnly.Count + CaptureOnly.Count + Both.Count);
+            var result = new List<int>(MoveOnly.Count + CaptureOnly.Count + Both.Count + RangedCapture.Count);
             result.AddRange(MoveOnly);
             result.AddRange(CaptureOnly);
             result.AddRange(Both);
+            result.AddRange(RangedCapture);
             return result;
         }
 
         /// <summary>Check if any targets exist</summary>
-        public bool HasAny => MoveOnly.Count > 0 || CaptureOnly.Count > 0 || Both.Count > 0;
+        public bool HasAny => MoveOnly.Count > 0 || CaptureOnly.Count > 0 || Both.Count > 0 || RangedCapture.Count > 0;
 
-        /// <summary>Merge another MoveTargets into this one</summary>
+        /// <summary>Check if a target node is a ranged capture</summary>
+        public bool IsRangedCapture(int nodeId) => RangedCapture.Contains(nodeId);
+
+        /// <summary>Merge another MoveTargets into this one, promoting to Both when there's overlap</summary>
         public void Merge(MoveTargets other, HashSet<int> seen)
         {
             foreach (var node in other.MoveOnly)
@@ -41,11 +48,37 @@ namespace BizarreChess.Core.Units
             }
             foreach (var node in other.CaptureOnly)
             {
-                if (!seen.Contains(node)) { seen.Add(node); CaptureOnly.Add(node); }
+                if (!seen.Contains(node)) 
+                { 
+                    seen.Add(node); 
+                    CaptureOnly.Add(node); 
+                }
+                else if (MoveOnly.Contains(node))
+                {
+                    // Promote MoveOnly to Both when capture is also possible
+                    MoveOnly.Remove(node);
+                    Both.Add(node);
+                }
             }
             foreach (var node in other.Both)
             {
                 if (!seen.Contains(node)) { seen.Add(node); Both.Add(node); }
+            }
+            foreach (var node in other.RangedCapture)
+            {
+                if (!seen.Contains(node)) 
+                { 
+                    seen.Add(node); 
+                    RangedCapture.Add(node); 
+                }
+                else if (MoveOnly.Contains(node))
+                {
+                    // Node is in MoveOnly and now also has RangedCapture capability.
+                    // Keep in MoveOnly for empty square movement (don't remove!).
+                    // Also add to RangedCapture for ranged capture when enemy present.
+                    if (!RangedCapture.Contains(node))
+                        RangedCapture.Add(node);
+                }
             }
         }
     }
@@ -62,6 +95,7 @@ namespace BizarreChess.Core.Units
         public bool CaptureOnly;         // Pawn diagonal capture
         public bool MoveOnly;            // Pawn forward (can't capture going forward)
         public bool FirstMoveOnly;       // Pawn double move on first turn
+        public bool RangedCapture;       // Capture without moving (ranged attack like Crossbowman)
         public Vector2Int Direction;     // For directional moves (pawn forward)
         
         // Leaper movement parameters (for Knight, Camel, Zebra, etc.)
@@ -78,6 +112,7 @@ namespace BizarreChess.Core.Units
             CaptureOnly = false;
             MoveOnly = false;
             FirstMoveOnly = false;
+            RangedCapture = false;
             Direction = Vector2Int.zero;
             LeapX = 0;
             LeapY = 0;
@@ -144,6 +179,10 @@ namespace BizarreChess.Core.Units
 
                 case MovementType.DiagonalCapture:
                     AddDiagonalCaptureCategorized(result, board, fromNode, playerSide, isEnemy);
+                    break;
+
+                case MovementType.DiagonalLeaper:
+                    AddDiagonalLeaperCategorized(result, board, fromNode, maxDist, isOccupied, isEnemy);
                     break;
             }
 
@@ -608,6 +647,78 @@ namespace BizarreChess.Core.Units
             }
         }
 
+        /// <summary>
+        /// Diagonal movement that can leap over abysses (non-passable tiles).
+        /// Used for ranged attacks like Crossbowman.
+        /// Can jump over abysses but NOT over pieces.
+        /// If RangedCapture is true, captures don't move the attacking unit.
+        /// </summary>
+        private void AddDiagonalLeaperCategorized(MoveTargets result, BoardGraph board, int fromNode, int maxDist,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var coords = board.Definition.GetCoordinates(fromNode);
+            var directions = new Vector2Int[]
+            {
+                new Vector2Int(1, 1), new Vector2Int(1, -1),
+                new Vector2Int(-1, 1), new Vector2Int(-1, -1)
+            };
+
+            foreach (var dir in directions)
+            {
+                for (int i = 1; i <= maxDist; i++)
+                {
+                    int x = coords.x + dir.x * i;
+                    int y = coords.y + dir.y * i;
+
+                    if (x < 0 || x >= board.Definition.Width || y < 0 || y >= board.Definition.Height)
+                        break;
+
+                    int nodeId = board.Definition.GetNodeId(x, y);
+
+                    // Skip over abysses (non-passable) - the bolt flies over them
+                    if (!board.IsPassable(nodeId))
+                        continue;
+
+                    // Check if tile is occupied
+                    if (isOccupied(nodeId))
+                    {
+                        // Can capture enemy if not MoveOnly
+                        if (isEnemy(nodeId) && !MoveOnly)
+                        {
+                            // RangedCapture: unit stays in place when capturing
+                            if (RangedCapture)
+                                result.RangedCapture.Add(nodeId);
+                            else if (CaptureOnly)
+                                result.CaptureOnly.Add(nodeId);
+                            else
+                                result.Both.Add(nodeId);
+                        }
+                        // Blocked by this piece - can't shoot through
+                        break;
+                    }
+
+                    // Empty passable square
+                    if (RangedCapture)
+                    {
+                        // Show ranged capture zones even on empty squares
+                        result.RangedCapture.Add(nodeId);
+                    }
+                    else if (CaptureOnly)
+                    {
+                        result.CaptureOnly.Add(nodeId);
+                    }
+                    else if (MoveOnly)
+                    {
+                        result.MoveOnly.Add(nodeId);
+                    }
+                    else
+                    {
+                        result.Both.Add(nodeId);
+                    }
+                }
+            }
+        }
+
         #endregion
     }
 
@@ -619,6 +730,7 @@ namespace BizarreChess.Core.Units
         Adjacent,        // King-like (1 square any direction)
         Forward,         // Pawn forward movement
         DiagonalCapture, // Pawn diagonal capture
+        DiagonalLeaper,  // Diagonal movement that can leap over abysses (Crossbowman ranged attack)
         Custom           // For bizarre chess special pieces
     }
 

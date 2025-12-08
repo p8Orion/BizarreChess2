@@ -263,10 +263,10 @@ namespace BizarreChess.Presentation
             int? targetNode = GetNodeUnderPointer(pointerPos);
             
             // Notify GameManager to handle the drop
-            bool success = _gameManager?.OnUnitDragEnded(_draggedUnit.UnitId, targetNode, _draggedUnitOriginalNode) ?? false;
+            var result = _gameManager?.OnUnitDragEnded(_draggedUnit.UnitId, targetNode, _draggedUnitOriginalNode) ?? (false, false);
             
-            // End drag visual (will animate back if not successful)
-            _draggedUnit.EndDrag(success);
+            // End drag visual (will animate back if not successful or if ranged capture)
+            _draggedUnit.EndDrag(result.success, result.stayInPlace);
             
             _draggedUnit = null;
         }

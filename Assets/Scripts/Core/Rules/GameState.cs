@@ -8,6 +8,37 @@ using BizarreChess.Core.Armies;
 namespace BizarreChess.Core.Rules
 {
     /// <summary>
+    /// Result of executing a full move (validate + execute + check win + end turn).
+    /// Contains all info needed for visual/network callbacks.
+    /// </summary>
+    public class MoveExecutionResult
+    {
+        public bool Success { get; set; }
+        public string Error { get; set; }
+        
+        // Move info
+        public int UnitId { get; set; }
+        public int FromNode { get; set; }
+        public int ToNode { get; set; }
+        
+        // Capture info
+        public bool IsCapture { get; set; }
+        public int? CapturedUnitId { get; set; }
+        public bool IsRangedCapture { get; set; }
+        
+        // Game state after move
+        public bool GameEnded { get; set; }
+        public int? WinnerId { get; set; }
+        public GameEndReason EndReason { get; set; }
+        
+        // Turn info
+        public int NewTurnNumber { get; set; }
+        public int NewCurrentPlayerId { get; set; }
+        
+        public static MoveExecutionResult Failed(string error) => new MoveExecutionResult { Success = false, Error = error };
+    }
+    
+    /// <summary>
     /// Complete state of a game match.
     /// </summary>
     [Serializable]
@@ -127,7 +158,8 @@ namespace BizarreChess.Core.Rules
         /// <summary>
         /// Execute a move action.
         /// </summary>
-        public void ExecuteMove(int unitId, int targetNode, bool isCapture = false, int? capturedUnitId = null)
+        /// <param name="isRangedCapture">If true, the unit captures without moving (ranged attack)</param>
+        public void ExecuteMove(int unitId, int targetNode, bool isCapture = false, int? capturedUnitId = null, bool isRangedCapture = false)
         {
             var unit = GetUnit(unitId);
             if (unit == null) return;
@@ -146,23 +178,95 @@ namespace BizarreChess.Core.Rules
                 }
             }
 
-            // Move unit
-            unit.MoveTo(targetNode);
+            // Move unit (unless ranged capture - unit stays in place)
+            if (!isRangedCapture)
+            {
+                unit.MoveTo(targetNode);
+            }
+            else
+            {
+                // Mark that unit has acted this turn even without moving
+                unit.HasMovedThisTurn = true;
+                unit.HasActedThisTurn = true;
+            }
 
             // Record action
             ActionHistory.Add(new GameAction
             {
-                Type = ActionType.Move,
+                Type = isRangedCapture ? ActionType.RangedCapture : ActionType.Move,
                 UnitId = unitId,
                 FromNode = fromNode,
-                ToNode = targetNode,
+                ToNode = isRangedCapture ? fromNode : targetNode, // Unit stays at fromNode for ranged
                 CapturedUnitId = capturedUnitId,
                 TurnNumber = TurnNumber,
                 PlayerId = CurrentPlayerId
             });
 
-            // Handle special tiles
-            HandleNodeEffect(unit, targetNode);
+            // Handle special tiles (only if unit actually moved)
+            if (!isRangedCapture)
+            {
+                HandleNodeEffect(unit, targetNode);
+            }
+        }
+
+        /// <summary>
+        /// Execute a complete move: validate, execute, check win conditions, and end turn.
+        /// This is the single source of truth for move logic - use this from both offline and network modes.
+        /// </summary>
+        public MoveExecutionResult TryExecuteFullMove(int unitId, int targetNode, MoveValidator validator, int requestingPlayerId)
+        {
+            // Validate it's this player's turn
+            if (requestingPlayerId != CurrentPlayerId)
+            {
+                return MoveExecutionResult.Failed("Not your turn");
+            }
+
+            // Get unit
+            var unit = GetUnit(unitId);
+            if (unit == null)
+            {
+                return MoveExecutionResult.Failed("Unit not found");
+            }
+
+            // Validate move
+            var validation = validator.ValidateMove(unit, targetNode, Units, requestingPlayerId);
+            if (!validation.IsValid)
+            {
+                return MoveExecutionResult.Failed(validation.Error);
+            }
+
+            // Execute the move
+            int fromNode = unit.CurrentNodeId;
+            ExecuteMove(unitId, targetNode, validation.IsCapture, validation.CapturedUnitId, validation.IsRangedCapture);
+
+            // Check win conditions
+            CheckWinConditions(validator);
+
+            bool gameEnded = Phase == GamePhase.Ended;
+            int? winnerId = WinnerId;
+            GameEndReason endReason = EndReason;
+
+            // End turn (if game hasn't ended)
+            if (!gameEnded)
+            {
+                EndTurn();
+            }
+
+            return new MoveExecutionResult
+            {
+                Success = true,
+                UnitId = unitId,
+                FromNode = fromNode,
+                ToNode = targetNode,
+                IsCapture = validation.IsCapture,
+                CapturedUnitId = validation.CapturedUnitId,
+                IsRangedCapture = validation.IsRangedCapture,
+                GameEnded = gameEnded,
+                WinnerId = winnerId,
+                EndReason = endReason,
+                NewTurnNumber = TurnNumber,
+                NewCurrentPlayerId = CurrentPlayerId
+            };
         }
 
         /// <summary>
@@ -371,6 +475,7 @@ namespace BizarreChess.Core.Rules
     {
         Move,
         Attack,
+        RangedCapture, // Capture without moving (e.g., Crossbowman)
         Ability,
         Spawn,
         EndTurn

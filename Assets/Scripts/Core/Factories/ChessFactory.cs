@@ -34,7 +34,7 @@ namespace BizarreChess.Core.Factories
         {
             var board = BoardFactory.CreateBoardWithAbyss(
                 sizeX: 8,
-                sizeY: 10,
+                sizeY: 8,
                 abyssPercentage: 5,  // 20% de los tiles elegibles serán abismo
                 impassablePercentage: 5,
                 seed: seed            // Seed para reproducibilidad

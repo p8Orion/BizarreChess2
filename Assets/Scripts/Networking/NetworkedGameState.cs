@@ -34,7 +34,7 @@ namespace BizarreChess.Networking
         private MoveValidator _moveValidator;
 
         // Events
-        public System.Action<int, int, int> OnUnitMoved; // unitId, fromNode, toNode
+        public System.Action<int, int, int, bool> OnUnitMoved; // unitId, fromNode, toNode, isRangedCapture
         public System.Action<int> OnUnitCaptured; // unitId
         public System.Action OnTurnChanged;
         public System.Action<int> OnGameEnded; // winnerId (-1 for draw)
@@ -280,59 +280,36 @@ namespace BizarreChess.Networking
                 return;
             }
 
-            // Validate it's this player's turn
-            if (playerId != _gameState.CurrentPlayerId)
-            {
-                SendErrorToClient("Not your turn", clientId);
-                return;
-            }
-
-            // Get unit
-            var unit = _gameState.GetUnit(unitId);
-            if (unit == null)
-            {
-                SendErrorToClient("Unit not found", clientId);
-                return;
-            }
-
-            // Validate move
-            var result = _moveValidator.ValidateMove(unit, targetNode, _gameState.Units, playerId);
-            if (!result.IsValid)
+            // Use centralized move execution (same logic as offline mode)
+            var result = _gameState.TryExecuteFullMove(unitId, targetNode, _moveValidator, playerId);
+            
+            if (!result.Success)
             {
                 SendErrorToClient(result.Error, clientId);
                 return;
             }
 
-            // Execute move
-            int fromNode = unit.CurrentNodeId;
-            _gameState.ExecuteMove(unitId, targetNode, result.IsCapture, result.CapturedUnitId);
-
-            Debug.Log($"[NetworkedGameState] Move executed: Unit {unitId} from {fromNode} to {targetNode}");
+            Debug.Log($"[NetworkedGameState] Move executed: Unit {unitId} from {result.FromNode} to {result.ToNode}, isRangedCapture={result.IsRangedCapture}");
 
             // Notify all clients
-            BroadcastMoveClientRpc(unitId, fromNode, targetNode);
+            BroadcastMoveClientRpc(unitId, result.FromNode, result.ToNode, result.IsRangedCapture);
 
             if (result.IsCapture && result.CapturedUnitId.HasValue)
             {
                 BroadcastCaptureClientRpc(result.CapturedUnitId.Value);
             }
 
-            // Check win conditions
-            _gameState.CheckWinConditions(_moveValidator);
-
-            if (_gameState.Phase == GamePhase.Ended)
+            // Update network state
+            if (result.GameEnded)
             {
                 Phase.Value = GamePhaseNetwork.Ended;
-                WinnerId.Value = _gameState.WinnerId ?? -1;
+                WinnerId.Value = result.WinnerId ?? -1;
             }
             else
             {
-                // End turn and switch player
-                _gameState.EndTurn();
-                
                 // Update network variables
-                CurrentTurn.Value = _gameState.TurnNumber;
-                CurrentPlayerId.Value = _gameState.CurrentPlayerId;
+                CurrentTurn.Value = result.NewTurnNumber;
+                CurrentPlayerId.Value = result.NewCurrentPlayerId;
                 
                 // Notify clients to sync their turn state
                 BroadcastTurnEndClientRpc();
@@ -397,7 +374,7 @@ namespace BizarreChess.Networking
         // Events for drag synchronization
         public System.Action<int> OnDragStarted; // unitId
         public System.Action<int, Vector3> OnDragUpdated; // unitId, position
-        public System.Action<int, bool> OnDragEnded; // unitId, success
+        public System.Action<int, bool, bool> OnDragEnded; // unitId, success, stayInPlace
 
         /// <summary>
         /// Client notifies server that they started dragging a piece.
@@ -443,12 +420,12 @@ namespace BizarreChess.Networking
         /// Client notifies server that they ended dragging.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        public void NotifyDragEndServerRpc(int unitId, bool success, ServerRpcParams rpcParams = default)
+        public void NotifyDragEndServerRpc(int unitId, bool success, bool stayInPlace = false, ServerRpcParams rpcParams = default)
         {
             ulong clientId = rpcParams.Receive.SenderClientId;
             
             // Broadcast to other clients
-            BroadcastDragEndClientRpc(unitId, success, clientId);
+            BroadcastDragEndClientRpc(unitId, success, stayInPlace, clientId);
         }
 
         [ClientRpc]
@@ -472,13 +449,13 @@ namespace BizarreChess.Networking
         }
 
         [ClientRpc]
-        private void BroadcastDragEndClientRpc(int unitId, bool success, ulong senderClientId)
+        private void BroadcastDragEndClientRpc(int unitId, bool success, bool stayInPlace, ulong senderClientId)
         {
             // Don't notify the sender
             if (NetworkManager.Singleton.LocalClientId == senderClientId)
                 return;
             
-            OnDragEnded?.Invoke(unitId, success);
+            OnDragEnded?.Invoke(unitId, success, stayInPlace);
         }
 
         #endregion
@@ -486,9 +463,9 @@ namespace BizarreChess.Networking
         #region Server -> Client Broadcasts
 
         [ClientRpc]
-        private void BroadcastMoveClientRpc(int unitId, int fromNode, int toNode)
+        private void BroadcastMoveClientRpc(int unitId, int fromNode, int toNode, bool isRangedCapture = false)
         {
-            Debug.Log($"[NetworkedGameState] BroadcastMove received: Unit {unitId} from {fromNode} to {toNode}");
+            Debug.Log($"[NetworkedGameState] BroadcastMove received: Unit {unitId} from {fromNode} to {toNode}, isRangedCapture={isRangedCapture}");
             
             // Update local game state on clients (server already updated)
             if (!IsServer && _gameState != null)
@@ -496,13 +473,17 @@ namespace BizarreChess.Networking
                 var unit = _gameState.GetUnit(unitId);
                 if (unit != null)
                 {
-                    unit.CurrentNodeId = toNode;
+                    // Only update position if NOT a ranged capture
+                    if (!isRangedCapture)
+                    {
+                        unit.CurrentNodeId = toNode;
+                    }
                     unit.HasMovedThisTurn = true;
                     unit.HasEverMoved = true;
                 }
             }
             
-            OnUnitMoved?.Invoke(unitId, fromNode, toNode);
+            OnUnitMoved?.Invoke(unitId, fromNode, toNode, isRangedCapture);
         }
 
         [ClientRpc]

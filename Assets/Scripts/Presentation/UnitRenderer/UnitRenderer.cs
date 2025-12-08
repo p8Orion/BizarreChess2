@@ -31,6 +31,11 @@ namespace BizarreChess.Presentation.UnitRenderer
         [SerializeField] private float _dragScale = 1.2f;
         [SerializeField] private float _dragLiftSpeed = 10f;
         [SerializeField] private float _returnSpeed = 8f;
+        
+        [Header("Drag Rotation")]
+        [SerializeField] private float _dragRotationSpeed = 12f;
+        [SerializeField] private float _dragTiltAngle = 15f;
+        [SerializeField] private float _minDragDistanceForRotation = 0.05f;
 
         public int UnitId { get; private set; }
         public System.Action OnClicked;
@@ -50,6 +55,13 @@ namespace BizarreChess.Presentation.UnitRenderer
         private Vector3 _originalPosition;
         private Vector3 _originalScale;
         private float _currentLiftProgress;
+        
+        // Drag rotation state
+        private Vector3 _lastDragPosition;
+        private float _currentDragYaw;      // Y rotation (facing direction)
+        private float _currentDragTilt;     // Forward tilt during drag
+        private float _targetDragYaw;
+        private bool _hasValidDragDirection;
 
         public void Initialize(UnitState state, UnitDefinition definition, Vector3 position)
         {
@@ -186,16 +198,18 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// <summary>
         /// Mark this unit as a capturable target (enemy that can be captured).
         /// </summary>
-        public void SetCapturable(bool capturable, int attackerOwnerId)
+        public void SetCapturable(bool capturable, int attackerOwnerId, bool isHover = false)
         {
             if (_meshRenderer != null && _meshRenderer.material != null)
             {
                 if (capturable)
                 {
                     _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use attacker's PRIMARY color to show it's a valid target
+                    // Use attacker's PRIMARY color for selection, SECONDARY for hover
                     var colorScheme = PlayerColors.Get(attackerOwnerId);
-                    Color emissionColor = colorScheme.PrimaryColor * 0.6f;
+                    Color emissionColor = isHover 
+                        ? colorScheme.SecondaryColor * 0.6f 
+                        : colorScheme.PrimaryColor * 0.6f;
                     _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
                 }
                 else if (!_isSelected)
@@ -276,6 +290,13 @@ namespace BizarreChess.Presentation.UnitRenderer
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
             
+            // Initialize drag rotation state
+            _lastDragPosition = transform.position;
+            _currentDragYaw = transform.eulerAngles.y;
+            _targetDragYaw = _currentDragYaw;
+            _currentDragTilt = 0f;
+            _hasValidDragDirection = false;
+            
             Debug.Log($"[UnitRenderer] StartDrag: Unit {UnitId}");
         }
         
@@ -292,6 +313,13 @@ namespace BizarreChess.Presentation.UnitRenderer
             _originalPosition = transform.position;
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
+            
+            // Initialize drag rotation state
+            _lastDragPosition = transform.position;
+            _currentDragYaw = transform.eulerAngles.y;
+            _targetDragYaw = _currentDragYaw;
+            _currentDragTilt = 0f;
+            _hasValidDragDirection = false;
         }
         
         /// <summary>
@@ -303,6 +331,19 @@ namespace BizarreChess.Presentation.UnitRenderer
             
             // Apply lifted Y position
             Vector3 dragPos = new Vector3(worldPosition.x, _dragLiftHeight, worldPosition.z);
+            
+            // Calculate drag direction for rotation
+            Vector3 dragDelta = new Vector3(dragPos.x - _lastDragPosition.x, 0f, dragPos.z - _lastDragPosition.z);
+            float dragDistance = dragDelta.magnitude;
+            
+            if (dragDistance > _minDragDistanceForRotation)
+            {
+                // Calculate the target yaw (Y rotation) to face the drag direction
+                _targetDragYaw = Mathf.Atan2(dragDelta.x, dragDelta.z) * Mathf.Rad2Deg;
+                _hasValidDragDirection = true;
+                _lastDragPosition = dragPos;
+            }
+            
             transform.position = dragPos;
         }
         
@@ -310,27 +351,32 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// Called when the drag ends.
         /// </summary>
         /// <param name="success">If true, the move was valid. If false, return to original position.</param>
-        public void EndDrag(bool success)
+        public void EndDrag(bool success, bool stayInPlace = false)
         {
             if (!_isDragging) return;
             
             _isDragging = false;
             
-            if (success)
+            // Remove tilt but keep the Y rotation (facing direction)
+            _currentDragTilt = 0f;
+            transform.rotation = Quaternion.Euler(0f, _currentDragYaw, 0f);
+            
+            if (success && !stayInPlace)
             {
                 // Move was successful - scale will be restored via MoveTo animation
                 transform.localScale = _originalScale;
             }
             else
             {
-                // Move failed - animate back to original position
+                // Move failed OR ranged capture (stay in place) - animate back to original position
                 _isReturning = true;
                 _startPosition = transform.position;
                 _targetPosition = _originalPosition;
                 _moveProgress = 0f;
+                transform.localScale = _originalScale;
             }
             
-            Debug.Log($"[UnitRenderer] EndDrag: Unit {UnitId}, success={success}");
+            Debug.Log($"[UnitRenderer] EndDrag: Unit {UnitId}, success={success}, stayInPlace={stayInPlace}");
         }
         
         /// <summary>
@@ -341,6 +387,10 @@ namespace BizarreChess.Presentation.UnitRenderer
             if (!_isDragging) return;
             
             _isDragging = false;
+            
+            // Remove tilt but keep the Y rotation (facing direction)
+            _currentDragTilt = 0f;
+            transform.rotation = Quaternion.Euler(0f, _currentDragYaw, 0f);
             
             if (!success)
             {
@@ -363,6 +413,19 @@ namespace BizarreChess.Presentation.UnitRenderer
             float targetScale = baseScale * _dragScale;
             float currentScale = Mathf.Lerp(baseScale, targetScale, _currentLiftProgress);
             transform.localScale = Vector3.one * currentScale;
+            
+            // Smoothly rotate to face drag direction
+            if (_hasValidDragDirection)
+            {
+                // Use SmoothDampAngle-like behavior for rotation
+                _currentDragYaw = Mathf.LerpAngle(_currentDragYaw, _targetDragYaw, Time.deltaTime * _dragRotationSpeed);
+                
+                // Add forward tilt while dragging
+                _currentDragTilt = Mathf.Lerp(_currentDragTilt, _dragTiltAngle, Time.deltaTime * _dragRotationSpeed);
+            }
+            
+            // Apply rotation: Y rotation (facing) + X rotation (tilt forward)
+            transform.rotation = Quaternion.Euler(_currentDragTilt, _currentDragYaw, 0f);
         }
         
         private void UpdateReturn()
@@ -386,6 +449,9 @@ namespace BizarreChess.Presentation.UnitRenderer
                 float currentScale = Mathf.Lerp(baseScale * _dragScale, baseScale, t);
                 transform.localScale = Vector3.one * currentScale;
             }
+            
+            // Keep Y rotation (facing direction) consistent during return
+            transform.rotation = Quaternion.Euler(0f, _currentDragYaw, 0f);
         }
         
         /// <summary>

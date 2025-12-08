@@ -108,11 +108,13 @@ namespace BizarreChess
         // Selection
         private int? _selectedUnitId;
         private List<int> _validMoves = new List<int>();
+        private MoveTargets _selectedMoves; // Categorized moves for current selection
         private List<int> _capturableUnitIds = new List<int>();
         
         // Hover state
         private int? _hoveredUnitId;
         private List<int> _hoverMoves = new List<int>();
+        private List<int> _hoverCapturableUnitIds = new List<int>();
         
         // Drag state
         private bool _isDragging;
@@ -297,15 +299,20 @@ namespace BizarreChess
             }
         }
 
-        private void OnNetworkUnitMoved(int unitId, int fromNode, int toNode)
+        private void OnNetworkUnitMoved(int unitId, int fromNode, int toNode, bool isRangedCapture)
         {
-            Debug.Log($"[GameManager] OnNetworkUnitMoved: Unit {unitId} from {fromNode} to {toNode}");
+            Debug.Log($"[GameManager] OnNetworkUnitMoved: Unit {unitId} from {fromNode} to {toNode}, isRangedCapture={isRangedCapture}");
             
-            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            // Only move visually if NOT a ranged capture (ranged attackers stay in place)
+            if (!isRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
             {
                 var position = GetWorldPosition(toNode);
                 Debug.Log($"[GameManager] Moving renderer to position {position}");
                 renderer.MoveTo(position);
+            }
+            else if (isRangedCapture)
+            {
+                Debug.Log($"[GameManager] Ranged capture - unit stays in place");
             }
             else
             {
@@ -675,6 +682,9 @@ namespace BizarreChess
                 _validMoves = categorizedMoves?.GetAll() ?? new List<int>();
             }
 
+            // Store categorized moves for validation during drag
+            _selectedMoves = categorizedMoves;
+
             // Highlight unit
             if (_unitRenderers.TryGetValue(unitId, out var renderer))
             {
@@ -708,6 +718,7 @@ namespace BizarreChess
 
             _selectedUnitId = null;
             _validMoves.Clear();
+            _selectedMoves = null;
             _boardRenderer?.ClearHighlights();
 
             OnSelectionCleared?.Invoke();
@@ -798,10 +809,13 @@ namespace BizarreChess
                 _hoverMoves = categorizedMoves?.GetAll() ?? new List<int>();
             }
             
-            // Show hover with categorized indicators (circle/ring) in secondary color
+            // Show hover with categorized indicators (circle/ring/crosshair) in secondary color
             if (categorizedMoves != null)
             {
                 _boardRenderer?.ShowCategorizedHoverMoves(categorizedMoves, ownerId);
+                
+                // Highlight capturable units on hover
+                MarkHoverCapturableUnits(categorizedMoves, ownerId);
             }
         }
 
@@ -815,7 +829,63 @@ namespace BizarreChess
                 _hoveredUnitId = null;
                 _hoverMoves.Clear();
                 _boardRenderer?.ClearHoverHighlights();
+                ClearHoverCapturableMarks();
             }
+        }
+
+        /// <summary>
+        /// Highlight units that can be captured based on hover preview.
+        /// </summary>
+        private void MarkHoverCapturableUnits(MoveTargets moves, int attackerOwnerId)
+        {
+            ClearHoverCapturableMarks();
+
+            List<UnitState> allUnits = _offlineMode 
+                ? _gameState?.Units 
+                : _networkedGameState?.GetAllUnits();
+
+            if (allUnits == null) return;
+
+            // Combine all capture targets (CaptureOnly, Both, RangedCapture)
+            var captureTargets = new HashSet<int>();
+            foreach (var nodeId in moves.CaptureOnly) captureTargets.Add(nodeId);
+            foreach (var nodeId in moves.Both) captureTargets.Add(nodeId);
+            foreach (var nodeId in moves.RangedCapture) captureTargets.Add(nodeId);
+
+            foreach (var unit in allUnits)
+            {
+                if (!unit.IsAlive) continue;
+                if (unit.OwnerId == attackerOwnerId) continue;
+
+                // Check if this enemy is on a valid capture square
+                if (captureTargets.Contains(unit.CurrentNodeId))
+                {
+                    if (_unitRenderers.TryGetValue(unit.UnitId, out var renderer))
+                    {
+                        renderer.SetCapturable(true, attackerOwnerId, isHover: true);
+                        _hoverCapturableUnitIds.Add(unit.UnitId);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clear hover capturable marks (but not selection capturable marks).
+        /// </summary>
+        private void ClearHoverCapturableMarks()
+        {
+            foreach (var unitId in _hoverCapturableUnitIds)
+            {
+                // Only clear if not also in selection capturable list
+                if (!_capturableUnitIds.Contains(unitId))
+                {
+                    if (_unitRenderers.TryGetValue(unitId, out var renderer))
+                    {
+                        renderer.SetCapturable(false, 0);
+                    }
+                }
+            }
+            _hoverCapturableUnitIds.Clear();
         }
 
         #endregion
@@ -903,38 +973,79 @@ namespace BizarreChess
         /// Called when a drag ends.
         /// Returns true if the move was successful.
         /// </summary>
-        public bool OnUnitDragEnded(int unitId, int? targetNodeId, int originalNodeId)
+        /// <summary>
+        /// Called when a drag ends.
+        /// Returns (success, stayInPlace) - stayInPlace is true for ranged captures where unit doesn't move.
+        /// </summary>
+        public (bool success, bool stayInPlace) OnUnitDragEnded(int unitId, int? targetNodeId, int originalNodeId)
         {
             if (!_isDragging || _draggingUnitId != unitId)
             {
-                return false;
+                return (false, false);
             }
             
             _isDragging = false;
             _draggingUnitId = null;
             
             bool success = false;
+            bool stayInPlace = false;
             
             // Check if dropped on a valid move
             if (targetNodeId.HasValue && _validMoves.Contains(targetNodeId.Value))
             {
-                if (_offlineMode)
+                int target = targetNodeId.Value;
+                
+                // Check if this is a capture-only or ranged-capture square
+                bool isCaptureOnly = _selectedMoves?.CaptureOnly.Contains(target) ?? false;
+                bool isRangedCapture = _selectedMoves?.IsRangedCapture(target) ?? false;
+                bool canMoveToEmpty = _selectedMoves?.MoveOnly.Contains(target) ?? false;
+                
+                // For capture-only and ranged-capture squares, verify there's an enemy
+                // UNLESS the node is also in MoveOnly (e.g., Crossbowman adjacent diagonals)
+                if ((isCaptureOnly || isRangedCapture) && !canMoveToEmpty)
                 {
-                    ExecuteMove(unitId, targetNodeId.Value);
-                    success = true;
+                    bool hasEnemy = _offlineMode
+                        ? _gameState?.Units.Exists(u => u.IsAlive && u.CurrentNodeId == target && u.OwnerId != _gameState.CurrentPlayerId) ?? false
+                        : _networkedGameState?.GetAllUnits().Exists(u => u.IsAlive && u.CurrentNodeId == target && u.OwnerId != _networkedGameState.CurrentPlayerId.Value) ?? false;
+                    
+                    if (!hasEnemy)
+                    {
+                        // Can't move to capture-only square without enemy
+                        success = false;
+                    }
+                    else if (_offlineMode)
+                    {
+                        ExecuteMove(unitId, target);
+                        success = true;
+                        stayInPlace = isRangedCapture; // Ranged capture = unit stays in place
+                    }
+                    else
+                    {
+                        _networkedGameState?.RequestMoveServerRpc(unitId, target);
+                        success = true;
+                        stayInPlace = isRangedCapture;
+                    }
                 }
                 else
                 {
-                    // Network mode - request move from server
-                    _networkedGameState?.RequestMoveServerRpc(unitId, targetNodeId.Value);
-                    success = true; // Assume success, server will correct if wrong
+                    // Normal move
+                    if (_offlineMode)
+                    {
+                        ExecuteMove(unitId, target);
+                        success = true;
+                    }
+                    else
+                    {
+                        _networkedGameState?.RequestMoveServerRpc(unitId, target);
+                        success = true;
+                    }
                 }
             }
             
             // Network sync: notify other players
             if (!_offlineMode && _networkedGameState != null)
             {
-                _networkedGameState.NotifyDragEndServerRpc(unitId, success);
+                _networkedGameState.NotifyDragEndServerRpc(unitId, success, stayInPlace);
             }
             
             // Clear selection if move failed
@@ -943,7 +1054,7 @@ namespace BizarreChess
                 ClearSelection();
             }
             
-            return success;
+            return (success, stayInPlace);
         }
 
         /// <summary>
@@ -971,11 +1082,15 @@ namespace BizarreChess
         /// <summary>
         /// Called from network when another player ends dragging.
         /// </summary>
-        public void OnRemoteDragEnded(int unitId, bool success)
+        public void OnRemoteDragEnded(int unitId, bool success, bool stayInPlace)
         {
             if (_unitRenderers.TryGetValue(unitId, out var renderer))
             {
-                renderer.EndDragRemote(success);
+                // EndDragRemote(true) = don't snap back (piece will be moved by MoveTo)
+                // EndDragRemote(false) = snap back to original position
+                // For ranged captures: success but stayInPlace, so we need to snap back
+                bool shouldMoveToNewPosition = success && !stayInPlace;
+                renderer.EndDragRemote(shouldMoveToNewPosition);
             }
         }
 
@@ -985,12 +1100,10 @@ namespace BizarreChess
 
         private void ExecuteMove(int unitId, int targetNode)
         {
-            var unit = _gameState.GetUnit(unitId);
-            if (unit == null) return;
-
-            // Validate
-            var result = _moveValidator.ValidateMove(unit, targetNode, _gameState.Units, _gameState.CurrentPlayerId);
-            if (!result.IsValid)
+            // Use centralized move execution (same logic as network mode)
+            var result = _gameState.TryExecuteFullMove(unitId, targetNode, _moveValidator, _gameState.CurrentPlayerId);
+            
+            if (!result.Success)
             {
                 Debug.LogWarning($"Invalid move: {result.Error}");
                 return;
@@ -1005,29 +1118,20 @@ namespace BizarreChess
                 }
             }
 
-            // Execute
-            int fromNode = unit.CurrentNodeId;
-            _gameState.ExecuteMove(unitId, targetNode, result.IsCapture, result.CapturedUnitId);
-
-            // Animate
-            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            // Animate - only move visually if NOT a ranged capture
+            if (!result.IsRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
             {
-                renderer.MoveTo(GetWorldPosition(targetNode));
+                renderer.MoveTo(GetWorldPosition(result.ToNode));
             }
 
-            // Check win
-            _gameState.CheckWinConditions(_moveValidator);
-
-            if (_gameState.Phase == GamePhase.Ended)
+            // Check if game ended
+            if (result.GameEnded)
             {
                 HandleGameEnd();
             }
 
             ClearSelection();
-
-            // End turn (in classic chess, move = end turn)
-            _gameState.EndTurn();
-            Debug.Log($"Turn {_gameState.TurnNumber}, Player {_gameState.CurrentPlayerId}'s turn");
+            Debug.Log($"Turn {result.NewTurnNumber}, Player {result.NewCurrentPlayerId}'s turn");
         }
 
         private void HandleGameEnd()

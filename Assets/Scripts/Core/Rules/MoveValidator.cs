@@ -48,11 +48,17 @@ namespace BizarreChess.Core.Rules
             if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
                 return MoveValidationResult.Fail("Unknown unit type");
 
-            // Get valid moves for this unit
-            var validMoves = GetValidMovesForUnit(unit, definition, allUnits);
+            // Get categorized moves to check for ranged captures
+            var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+            var validMoves = categorizedMoves.GetAll();
 
             if (!validMoves.Contains(targetNode))
                 return MoveValidationResult.Fail("Invalid move for this unit type");
+
+            // Check if this is a ranged capture or capture-only square
+            bool isRangedCapture = categorizedMoves.IsRangedCapture(targetNode);
+            bool isCaptureOnly = categorizedMoves.CaptureOnly.Contains(targetNode);
+            bool canMoveToEmpty = categorizedMoves.MoveOnly.Contains(targetNode);
 
             // Check if target is occupied
             var targetOccupant = allUnits.FirstOrDefault(u => u.IsAlive && u.CurrentNodeId == targetNode);
@@ -62,9 +68,14 @@ namespace BizarreChess.Core.Rules
                 if (targetOccupant.OwnerId == currentPlayerId)
                     return MoveValidationResult.Fail("Cannot move to a square occupied by your own unit");
 
-                // This is a capture
-                return MoveValidationResult.Success(isCapture: true, capturedUnitId: targetOccupant.UnitId);
+                // This is a capture (possibly ranged)
+                return MoveValidationResult.Success(isCapture: true, capturedUnitId: targetOccupant.UnitId, isRangedCapture: isRangedCapture);
             }
+
+            // CaptureOnly and RangedCapture squares require an enemy to be valid moves
+            // UNLESS the node is also in MoveOnly (e.g., Crossbowman can move to adjacent diagonals)
+            if ((isCaptureOnly || isRangedCapture) && !canMoveToEmpty)
+                return MoveValidationResult.Fail("Can only capture here, not move to empty square");
 
             return MoveValidationResult.Success();
         }
@@ -168,15 +179,32 @@ namespace BizarreChess.Core.Rules
                 if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
                     continue;
 
-                var validMoves = GetValidMovesForUnit(unit, definition, allUnits);
+                var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+                var validMoves = categorizedMoves.GetAll();
                 
                 foreach (var move in validMoves)
                 {
-                    // Simulate the move
-                    int originalNode = unit.CurrentNodeId;
+                    // Check if this is a ranged capture or capture-only (unit doesn't move)
+                    bool isRanged = categorizedMoves.IsRangedCapture(move);
+                    bool isCaptureOnly = categorizedMoves.CaptureOnly.Contains(move);
+                    bool canMoveToEmpty = categorizedMoves.MoveOnly.Contains(move);
+                    
+                    // Check if there's an enemy to capture
                     var capturedUnit = allUnits.FirstOrDefault(u => u.IsAlive && u.CurrentNodeId == move);
                     
-                    unit.CurrentNodeId = move;
+                    // CaptureOnly and RangedCapture squares require an enemy - skip if empty
+                    // UNLESS the node is also in MoveOnly (e.g., Crossbowman adjacent diagonals)
+                    if ((isCaptureOnly || isRanged) && capturedUnit == null && !canMoveToEmpty)
+                        continue;
+                    
+                    // Simulate the move
+                    int originalNode = unit.CurrentNodeId;
+                    
+                    // Only move unit if not a ranged capture with actual enemy
+                    bool isActualRangedCapture = isRanged && capturedUnit != null;
+                    if (!isActualRangedCapture)
+                        unit.CurrentNodeId = move;
+                    
                     if (capturedUnit != null)
                         capturedUnit.IsAlive = false;
 
@@ -209,12 +237,42 @@ namespace BizarreChess.Core.Rules
                 if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
                     continue;
 
-                var validMoves = GetValidMovesForUnit(unit, definition, allUnits);
-                if (validMoves.Count > 0)
+                var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+                
+                // Check if there are any truly valid moves (excluding CaptureOnly/RangedCapture on empty squares)
+                if (HasAnyValidMove(categorizedMoves, allUnits, unit.OwnerId))
                     return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Check if there are any truly valid moves (CaptureOnly/RangedCapture only valid if enemy present).
+        /// </summary>
+        private bool HasAnyValidMove(MoveTargets moves, List<UnitState> allUnits, int playerId)
+        {
+            // MoveOnly and Both are always valid (they're on empty squares or can capture)
+            if (moves.MoveOnly.Count > 0 || moves.Both.Count > 0)
+                return true;
+
+            // CaptureOnly squares are valid only if occupied by enemy
+            foreach (var nodeId in moves.CaptureOnly)
+            {
+                var occupant = allUnits.FirstOrDefault(u => u.IsAlive && u.CurrentNodeId == nodeId);
+                if (occupant != null && occupant.OwnerId != playerId)
+                    return true;
+            }
+
+            // RangedCapture squares are valid only if occupied by enemy
+            foreach (var nodeId in moves.RangedCapture)
+            {
+                var occupant = allUnits.FirstOrDefault(u => u.IsAlive && u.CurrentNodeId == nodeId);
+                if (occupant != null && occupant.OwnerId != playerId)
+                    return true;
+            }
+
+            return false;
         }
     }
 
@@ -223,14 +281,16 @@ namespace BizarreChess.Core.Rules
         public bool IsValid;
         public string Error;
         public bool IsCapture;
+        public bool IsRangedCapture; // Capture without moving the attacking unit
         public int? CapturedUnitId;
 
-        public static MoveValidationResult Success(bool isCapture = false, int? capturedUnitId = null)
+        public static MoveValidationResult Success(bool isCapture = false, int? capturedUnitId = null, bool isRangedCapture = false)
         {
             return new MoveValidationResult
             {
                 IsValid = true,
                 IsCapture = isCapture,
+                IsRangedCapture = isRangedCapture,
                 CapturedUnitId = capturedUnitId
             };
         }

@@ -314,8 +314,8 @@ namespace BizarreChess.Core.Factories
             {
                 // Moves like a king (1 square any direction)
                 new MovementPattern(MovementType.Adjacent, 1) { MoveOnly = true },
-                // Captures like a bishop but max 3 squares
-                new MovementPattern(MovementType.Diagonal, 3) { CaptureOnly = true }
+                // Captures diagonally up to 3 squares, can shoot over abysses, unit doesn't move when capturing
+                new MovementPattern(MovementType.DiagonalLeaper, 3) { CaptureOnly = true, RangedCapture = true }
             };
 
             // No standard unicode for Crossbowman, use Pawn as fallback
