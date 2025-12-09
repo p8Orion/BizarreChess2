@@ -144,7 +144,7 @@ namespace BizarreChess.Networking
                 CurrentJoinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
                 
                 // Configure transport with Relay data
-                // Use "wss" for WebGL, "dtls" for other platforms
+                // Use "wss" for WebGL, "udp" for other platforms
 #if UNITY_WEBGL && !UNITY_EDITOR
                 string connectionType = "wss";
                 _transport.UseWebSockets = true;
@@ -211,12 +211,12 @@ namespace BizarreChess.Networking
                 var joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
                 
                 // Configure transport with Relay data
-                // Use "wss" for WebGL, "dtls" for other platforms
+                // Use "wss" for WebGL, "udp" for other platforms
 #if UNITY_WEBGL && !UNITY_EDITOR
                 string connectionType = "wss";
                 _transport.UseWebSockets = true;
 #else
-                string connectionType = "dtls";
+                string connectionType = "";
 #endif
                 _transport.SetRelayServerData(AllocationUtils.ToRelayServerData(joinAllocation, connectionType));
 
