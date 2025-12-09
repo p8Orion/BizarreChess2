@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using BizarreChess.Core.Skills;
 
 namespace BizarreChess.Core.Units
 {
@@ -15,12 +16,12 @@ namespace BizarreChess.Core.Units
         public string DisplayName;
         public PieceType PieceType;
 
-        [Header("Base Stats")]
-        public UnitBaseStats BaseStats;
-        public UnitGrowthStats GrowthStats;
-
         [Header("Movement")]
         public List<MovementPattern> MovementPatterns;
+
+        [Header("Skills")]
+        [SerializeReference]
+        public List<Skill> Skills;
 
         [Header("Special Properties")]
         public bool IsKing;              // Losing this unit loses the game
@@ -58,40 +59,6 @@ namespace BizarreChess.Core.Units
         /// </summary>
         public Texture2D RevolutionTexture;
         public float PieceHeight = 1.5f;        // Height for displacement/revolution mode
-
-        [Header("Abilities (Future)")]
-        public List<AbilityUnlock> Abilities;
-
-        /// <summary>
-        /// Get all valid target nodes for this unit's movement patterns.
-        /// </summary>
-        public List<int> GetAllValidMoves(Board.BoardGraph board, int fromNode, int playerSide,
-            Func<int, bool> isOccupied, Func<int, bool> isEnemy, bool hasMoved = false)
-        {
-            return GetAllCategorizedMoves(board, fromNode, playerSide, isOccupied, isEnemy, hasMoved).GetAll();
-        }
-
-        /// <summary>
-        /// Get all valid target nodes categorized by type (move-only, capture-only, both).
-        /// </summary>
-        public MoveTargets GetAllCategorizedMoves(Board.BoardGraph board, int fromNode, int playerSide,
-            Func<int, bool> isOccupied, Func<int, bool> isEnemy, bool hasMoved = false)
-        {
-            var result = new MoveTargets();
-            var seen = new HashSet<int>();
-
-            foreach (var pattern in MovementPatterns)
-            {
-                // Skip first-move-only patterns if unit has already moved
-                if (pattern.FirstMoveOnly && hasMoved)
-                    continue;
-
-                var targets = pattern.GetCategorizedTargets(board, fromNode, playerSide, isOccupied, isEnemy);
-                result.Merge(targets, seen);
-            }
-
-            return result;
-        }
 
         public char GetUnicode(int playerSide)
         {
@@ -131,16 +98,6 @@ namespace BizarreChess.Core.Units
         /// Alpha channel defines solid vs empty space.
         /// </summary>
         RevolutionVolume
-    }
-
-    /// <summary>
-    /// Ability that unlocks at a certain level.
-    /// </summary>
-    [Serializable]
-    public class AbilityUnlock
-    {
-        public string AbilityId;
-        public int RequiredLevel;
     }
 
     /// <summary>
@@ -196,4 +153,3 @@ namespace BizarreChess.Core.Units
         }
     }
 }
-

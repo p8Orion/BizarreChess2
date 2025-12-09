@@ -44,12 +44,8 @@ namespace BizarreChess.Core.Rules
             if (!_board.IsPassable(targetNode))
                 return MoveValidationResult.Fail("Target node is not passable");
 
-            // Get unit definition
-            if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
-                return MoveValidationResult.Fail("Unknown unit type");
-
-            // Get categorized moves to check for ranged captures
-            var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+            // Get categorized moves from the unit instance (not definition)
+            var categorizedMoves = GetCategorizedMovesForUnit(unit, allUnits);
             var validMoves = categorizedMoves.GetAll();
 
             if (!validMoves.Contains(targetNode))
@@ -81,60 +77,24 @@ namespace BizarreChess.Core.Rules
         }
 
         /// <summary>
-        /// Get all valid move targets for a unit.
+        /// Get all valid move targets for a unit (uses unit's own MovementPatterns).
         /// </summary>
-        public List<int> GetValidMovesForUnit(UnitState unit, UnitDefinition definition, List<UnitState> allUnits)
+        public List<int> GetValidMovesForUnit(UnitState unit, List<UnitState> allUnits)
         {
-            return GetCategorizedMovesForUnit(unit, definition, allUnits).GetAll();
+            return GetCategorizedMovesForUnit(unit, allUnits).GetAll();
         }
 
         /// <summary>
         /// Get categorized valid moves for a unit (move-only, capture-only, both).
+        /// Uses the unit instance's MovementPatterns, not the definition.
         /// </summary>
-        public MoveTargets GetCategorizedMovesForUnit(UnitState unit, UnitDefinition definition, List<UnitState> allUnits)
+        public MoveTargets GetCategorizedMovesForUnit(UnitState unit, List<UnitState> allUnits)
         {
             bool IsOccupied(int nodeId) => allUnits.Any(u => u.IsAlive && u.CurrentNodeId == nodeId);
             bool IsEnemy(int nodeId) => allUnits.Any(u => u.IsAlive && u.CurrentNodeId == nodeId && u.OwnerId != unit.OwnerId);
 
-            return definition.GetAllCategorizedMoves(
-                _board,
-                unit.CurrentNodeId,
-                unit.OwnerId,
-                IsOccupied,
-                IsEnemy,
-                unit.HasEverMoved
-            );
-        }
-
-        /// <summary>
-        /// Check if a unit can attack another unit (for games with separate attack action).
-        /// </summary>
-        public AttackValidationResult ValidateAttack(
-            UnitState attacker,
-            UnitState target,
-            int currentPlayerId)
-        {
-            if (!attacker.IsAlive)
-                return AttackValidationResult.Fail("Attacker is dead");
-
-            if (!target.IsAlive)
-                return AttackValidationResult.Fail("Target is dead");
-
-            if (attacker.OwnerId != currentPlayerId)
-                return AttackValidationResult.Fail("Not your unit");
-
-            if (target.OwnerId == currentPlayerId)
-                return AttackValidationResult.Fail("Cannot attack your own unit");
-
-            if (attacker.HasActedThisTurn)
-                return AttackValidationResult.Fail("Unit has already acted this turn");
-
-            // Check range
-            int distance = _board.GetDistance(attacker.CurrentNodeId, target.CurrentNodeId);
-            if (distance < 0 || distance > attacker.Range)
-                return AttackValidationResult.Fail("Target is out of range");
-
-            return AttackValidationResult.Success();
+            // Use the unit's own MovementPatterns (cloned from definition, possibly modified)
+            return unit.GetAllCategorizedMoves(_board, unit.OwnerId, IsOccupied, IsEnemy);
         }
 
         /// <summary>
@@ -154,10 +114,7 @@ namespace BizarreChess.Core.Rules
             // Check if any enemy unit can capture the king
             foreach (var enemy in allUnits.Where(u => u.IsAlive && u.OwnerId != playerId))
             {
-                if (!_unitDefinitions.TryGetValue(enemy.DefinitionId, out var enemyDef))
-                    continue;
-
-                var validMoves = GetValidMovesForUnit(enemy, enemyDef, allUnits);
+                var validMoves = GetValidMovesForUnit(enemy, allUnits);
                 if (validMoves.Contains(king.CurrentNodeId))
                     return true;
             }
@@ -176,10 +133,7 @@ namespace BizarreChess.Core.Rules
             // Check if any move can get out of check
             foreach (var unit in allUnits.Where(u => u.IsAlive && u.OwnerId == playerId))
             {
-                if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
-                    continue;
-
-                var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+                var categorizedMoves = GetCategorizedMovesForUnit(unit, allUnits);
                 var validMoves = categorizedMoves.GetAll();
                 
                 foreach (var move in validMoves)
@@ -234,10 +188,7 @@ namespace BizarreChess.Core.Rules
             // Check if player has any legal moves
             foreach (var unit in allUnits.Where(u => u.IsAlive && u.OwnerId == playerId))
             {
-                if (!_unitDefinitions.TryGetValue(unit.DefinitionId, out var definition))
-                    continue;
-
-                var categorizedMoves = GetCategorizedMovesForUnit(unit, definition, allUnits);
+                var categorizedMoves = GetCategorizedMovesForUnit(unit, allUnits);
                 
                 // Check if there are any truly valid moves (excluding CaptureOnly/RangedCapture on empty squares)
                 if (HasAnyValidMove(categorizedMoves, allUnits, unit.OwnerId))
@@ -304,21 +255,4 @@ namespace BizarreChess.Core.Rules
             };
         }
     }
-
-    public class AttackValidationResult
-    {
-        public bool IsValid;
-        public string Error;
-
-        public static AttackValidationResult Success()
-        {
-            return new AttackValidationResult { IsValid = true };
-        }
-
-        public static AttackValidationResult Fail(string error)
-        {
-            return new AttackValidationResult { IsValid = false, Error = error };
-        }
-    }
 }
-

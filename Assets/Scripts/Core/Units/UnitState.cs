@@ -1,38 +1,28 @@
 using System;
 using System.Collections.Generic;
+using BizarreChess.Core.Board;
+using BizarreChess.Core.Skills;
 
 namespace BizarreChess.Core.Units
 {
     /// <summary>
     /// Runtime state of a unit in a match (mutable, synchronized in multiplayer).
+    /// This is a clone of UnitDefinition that can be modified independently per instance.
     /// </summary>
     [Serializable]
     public class UnitState
     {
         // Identity
         public int UnitId;               // Unique ID within this match
-        public string DefinitionId;      // Reference to UnitDefinition
+        public string DefinitionId;      // Reference to UnitDefinition (for visuals, etc.)
         public int OwnerId;              // Player ID who owns this unit
         public int CurrentNodeId;        // Position on the board
 
-        // Progression (persistent between matches for owned units)
-        public int Level;
-        public int Experience;
-        public int ExperienceToNextLevel;
-
-        // Current stats (recalculated when modifiers change)
-        public int CurrentHealth;
-        public int MaxHealth;
-        public int Attack;
-        public int Defense;
-        public int Speed;
-        public int Range;
-
-        // Equipment
-        public List<string> EquippedItemIds;
-
-        // Modifiers (buffs/debuffs)
-        public List<Modifier> ActiveModifiers;
+        // Cloned from definition (modifiable per instance)
+        public List<MovementPattern> MovementPatterns;
+        
+        [NonSerialized]
+        public List<Skill> Skills;
 
         // Turn state
         public bool HasMovedThisTurn;
@@ -41,141 +31,116 @@ namespace BizarreChess.Core.Units
 
         // Status
         public bool IsAlive;
-        public int TurnsUntilRespawn;    // -1 if no respawn
 
         public UnitState()
         {
-            EquippedItemIds = new List<string>();
-            ActiveModifiers = new List<Modifier>();
+            MovementPatterns = new List<MovementPattern>();
+            Skills = new List<Skill>();
             IsAlive = true;
-            Level = 1;
-            TurnsUntilRespawn = -1;
         }
 
         /// <summary>
         /// Create initial state from a unit definition.
+        /// Clones MovementPatterns and Skills so each instance can be modified independently.
         /// </summary>
-        public static UnitState Create(int unitId, UnitDefinition definition, int ownerId, int nodeId, int level = 1)
+        public static UnitState Create(int unitId, UnitDefinition definition, int ownerId, int nodeId)
         {
-            var stats = UnitCalculatedStats.Calculate(definition.BaseStats, definition.GrowthStats, level);
-
-            return new UnitState
+            var state = new UnitState
             {
                 UnitId = unitId,
                 DefinitionId = definition.UnitId,
                 OwnerId = ownerId,
                 CurrentNodeId = nodeId,
-                Level = level,
-                Experience = 0,
-                ExperienceToNextLevel = CalculateXPRequired(level),
-                CurrentHealth = stats.MaxHealth,
-                MaxHealth = stats.MaxHealth,
-                Attack = stats.Attack,
-                Defense = stats.Defense,
-                Speed = stats.Speed,
-                Range = stats.Range,
                 IsAlive = true,
                 HasMovedThisTurn = false,
                 HasActedThisTurn = false,
                 HasEverMoved = false
             };
-        }
 
-        #region Stat Calculation
+            // Clone movement patterns
+            state.MovementPatterns = CloneMovementPatterns(definition.MovementPatterns);
+
+            // Clone skills
+            state.Skills = CloneSkills(definition.Skills);
+
+            return state;
+        }
 
         /// <summary>
-        /// Recalculate stats based on base + level + equipment + modifiers.
+        /// Deep clone movement patterns from a definition.
         /// </summary>
-        public void RecalculateStats(UnitDefinition definition)
+        private static List<MovementPattern> CloneMovementPatterns(List<MovementPattern> patterns)
         {
-            var baseCalc = UnitCalculatedStats.Calculate(definition.BaseStats, definition.GrowthStats, Level);
+            if (patterns == null)
+                return new List<MovementPattern>();
 
-            MaxHealth = ApplyModifiers("Health", baseCalc.MaxHealth);
-            Attack = ApplyModifiers("Attack", baseCalc.Attack);
-            Defense = ApplyModifiers("Defense", baseCalc.Defense);
-            Speed = ApplyModifiers("Speed", baseCalc.Speed);
-            Range = ApplyModifiers("Range", baseCalc.Range);
-
-            // Clamp health to max
-            if (CurrentHealth > MaxHealth)
-                CurrentHealth = MaxHealth;
+            var cloned = new List<MovementPattern>(patterns.Count);
+            foreach (var pattern in patterns)
+            {
+                cloned.Add(new MovementPattern
+                {
+                    Type = pattern.Type,
+                    MaxDistance = pattern.MaxDistance,
+                    CanJump = pattern.CanJump,
+                    CaptureOnly = pattern.CaptureOnly,
+                    MoveOnly = pattern.MoveOnly,
+                    FirstMoveOnly = pattern.FirstMoveOnly,
+                    RangedCapture = pattern.RangedCapture,
+                    Direction = pattern.Direction,
+                    LeapX = pattern.LeapX,
+                    LeapY = pattern.LeapY
+                });
+            }
+            return cloned;
         }
 
-        private int ApplyModifiers(string stat, int baseValue)
+        /// <summary>
+        /// Deep clone skills from a definition.
+        /// </summary>
+        private static List<Skill> CloneSkills(List<Skill> skills)
         {
-            int additive = 0;
-            float multiplicative = 1f;
-            int? overrideValue = null;
+            if (skills == null)
+                return new List<Skill>();
 
-            foreach (var mod in ActiveModifiers)
+            var cloned = new List<Skill>(skills.Count);
+            foreach (var skill in skills)
             {
-                if (mod.TargetStat != stat || mod.IsExpired)
+                cloned.Add(skill.Clone());
+            }
+            return cloned;
+        }
+
+        #region Movement
+
+        /// <summary>
+        /// Get all valid target nodes for this unit's movement patterns.
+        /// </summary>
+        public List<int> GetAllValidMoves(BoardGraph board, int playerSide,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            return GetAllCategorizedMoves(board, playerSide, isOccupied, isEnemy).GetAll();
+        }
+
+        /// <summary>
+        /// Get all valid target nodes categorized by type (move-only, capture-only, both).
+        /// </summary>
+        public MoveTargets GetAllCategorizedMoves(BoardGraph board, int playerSide,
+            Func<int, bool> isOccupied, Func<int, bool> isEnemy)
+        {
+            var result = new MoveTargets();
+            var seen = new HashSet<int>();
+
+            foreach (var pattern in MovementPatterns)
+            {
+                // Skip first-move-only patterns if unit has already moved
+                if (pattern.FirstMoveOnly && HasEverMoved)
                     continue;
 
-                switch (mod.Operation)
-                {
-                    case ModifierOperation.Add:
-                        additive += mod.Value;
-                        break;
-                    case ModifierOperation.Multiply:
-                        multiplicative *= mod.Value / 100f;
-                        break;
-                    case ModifierOperation.Set:
-                    case ModifierOperation.Override:
-                        overrideValue = mod.Value;
-                        break;
-                }
+                var targets = pattern.GetCategorizedTargets(board, CurrentNodeId, playerSide, isOccupied, isEnemy);
+                result.Merge(targets, seen);
             }
 
-            if (overrideValue.HasValue)
-                return overrideValue.Value;
-
-            return (int)((baseValue + additive) * multiplicative);
-        }
-
-        #endregion
-
-        #region Experience & Leveling
-
-        public static int CalculateXPRequired(int level)
-        {
-            // Simple formula: 100 * level^1.5
-            return (int)(100 * Math.Pow(level, 1.5));
-        }
-
-        public void AddExperience(int amount)
-        {
-            Experience += amount;
-            while (Experience >= ExperienceToNextLevel)
-            {
-                Experience -= ExperienceToNextLevel;
-                Level++;
-                ExperienceToNextLevel = CalculateXPRequired(Level);
-            }
-        }
-
-        #endregion
-
-        #region Combat
-
-        public void TakeDamage(int damage)
-        {
-            int actualDamage = Math.Max(1, damage - Defense);
-            CurrentHealth -= actualDamage;
-
-            if (CurrentHealth <= 0)
-            {
-                CurrentHealth = 0;
-                IsAlive = false;
-            }
-
-            // Remove "until damaged" modifiers
-            ActiveModifiers.RemoveAll(m => m.DurationType == ModifierDuration.UntilDamaged);
-        }
-
-        public void Heal(int amount)
-        {
-            CurrentHealth = Math.Min(CurrentHealth + amount, MaxHealth);
+            return result;
         }
 
         #endregion
@@ -190,21 +155,7 @@ namespace BizarreChess.Core.Units
 
         public void EndTurn()
         {
-            // Decrement turn-based modifiers
-            for (int i = ActiveModifiers.Count - 1; i >= 0; i--)
-            {
-                var mod = ActiveModifiers[i];
-                mod.DecrementTurn();
-                ActiveModifiers[i] = mod;
-
-                if (mod.IsExpired)
-                {
-                    ActiveModifiers.RemoveAt(i);
-                }
-            }
-
-            // Remove end-of-turn modifiers
-            ActiveModifiers.RemoveAll(m => m.DurationType == ModifierDuration.UntilEndOfTurn);
+            // Future: process skill effects that trigger on turn end
         }
 
         public void MoveTo(int newNodeId)
@@ -219,24 +170,41 @@ namespace BizarreChess.Core.Units
 
         #endregion
 
-        #region Modifiers
+        #region Skills
 
-        public void AddModifier(Modifier modifier)
+        /// <summary>
+        /// Get a skill by its ID.
+        /// </summary>
+        public Skill GetSkill(string skillId)
         {
-            ActiveModifiers.Add(modifier);
+            return Skills?.Find(s => s.Id == skillId);
         }
 
-        public void RemoveModifier(string modifierId)
+        /// <summary>
+        /// Check if unit has a specific skill.
+        /// </summary>
+        public bool HasSkill(string skillId)
         {
-            ActiveModifiers.RemoveAll(m => m.Id == modifierId);
+            return Skills?.Exists(s => s.Id == skillId) ?? false;
         }
 
-        public void RemoveModifiersBySource(string source)
+        /// <summary>
+        /// Add a skill to this unit instance.
+        /// </summary>
+        public void AddSkill(Skill skill)
         {
-            ActiveModifiers.RemoveAll(m => m.Source == source);
+            Skills ??= new List<Skill>();
+            Skills.Add(skill);
+        }
+
+        /// <summary>
+        /// Remove a skill from this unit instance.
+        /// </summary>
+        public void RemoveSkill(string skillId)
+        {
+            Skills?.RemoveAll(s => s.Id == skillId);
         }
 
         #endregion
     }
 }
-

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using BizarreChess.Core.Units;
+using BizarreChess.Core.Skills;
 
 namespace BizarreChess.Core.Factories
 {
@@ -35,7 +36,7 @@ namespace BizarreChess.Core.Factories
         public static Dictionary<string, UnitDefinition> GetAll()
         {
             // Ensure all pieces are cached
-            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn", "Lancer" };
+            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn", "Lancer", "Defender" };
             foreach (var name in allNames)
                 Get(name);
 
@@ -66,6 +67,7 @@ namespace BizarreChess.Core.Factories
                 "Crossbowman" => CreateCrossbowmanDefinition(),
                 "Pawn" => CreatePawnDefinition(),
                 "Lancer" => CreateLancerDefinition(),
+                "Defender" => CreateDefenderDefinition(),
                 _ => null
             };
         }
@@ -83,18 +85,6 @@ namespace BizarreChess.Core.Factories
             king.IsKing = true;
             king.CanCastle = true;
             king.BaseCost = 0; // Priceless / required
-
-            king.BaseStats = new UnitBaseStats
-            {
-                Health = 100,
-                Attack = 5,
-                Defense = 5,
-                Speed = 3,
-                Range = 1,
-                Movement = 1
-            };
-
-            king.GrowthStats = UnitGrowthStats.Default;
 
             king.MovementPatterns = new List<MovementPattern>
             {
@@ -118,24 +108,6 @@ namespace BizarreChess.Core.Factories
             queen.DisplayName = "Queen";
             queen.PieceType = PieceType.Queen;
             queen.BaseCost = 9;
-
-            queen.BaseStats = new UnitBaseStats
-            {
-                Health = 50,
-                Attack = 15,
-                Defense = 3,
-                Speed = 8,
-                Range = 1,
-                Movement = 8
-            };
-
-            queen.GrowthStats = new UnitGrowthStats
-            {
-                HealthPerLevel = 5,
-                AttackPerLevel = 2,
-                DefensePerLevel = 1,
-                SpeedPerLevel = 0
-            };
 
             queen.MovementPatterns = new List<MovementPattern>
             {
@@ -162,18 +134,6 @@ namespace BizarreChess.Core.Factories
             rook.CanCastle = true;
             rook.BaseCost = 5;
 
-            rook.BaseStats = new UnitBaseStats
-            {
-                Health = 60,
-                Attack = 10,
-                Defense = 5,
-                Speed = 5,
-                Range = 1,
-                Movement = 8
-            };
-
-            rook.GrowthStats = UnitGrowthStats.Default;
-
             rook.MovementPatterns = new List<MovementPattern>
             {
                 new MovementPattern(MovementType.Orthogonal, -1)
@@ -195,18 +155,6 @@ namespace BizarreChess.Core.Factories
             bishop.DisplayName = "Bishop";
             bishop.PieceType = PieceType.Bishop;
             bishop.BaseCost = 3;
-
-            bishop.BaseStats = new UnitBaseStats
-            {
-                Health = 40,
-                Attack = 8,
-                Defense = 2,
-                Speed = 6,
-                Range = 1,
-                Movement = 8
-            };
-
-            bishop.GrowthStats = UnitGrowthStats.Default;
 
             bishop.MovementPatterns = new List<MovementPattern>
             {
@@ -230,18 +178,6 @@ namespace BizarreChess.Core.Factories
             knight.PieceType = PieceType.Knight;
             knight.BaseCost = 3;
 
-            knight.BaseStats = new UnitBaseStats
-            {
-                Health = 45,
-                Attack = 8,
-                Defense = 3,
-                Speed = 7,
-                Range = 1,
-                Movement = 1
-            };
-
-            knight.GrowthStats = UnitGrowthStats.Default;
-
             knight.MovementPatterns = new List<MovementPattern>
             {
                 MovementPattern.Leaper(2, 1)  // Knight: L-shape (2,1)
@@ -263,18 +199,6 @@ namespace BizarreChess.Core.Factories
             camel.DisplayName = "Camel";
             camel.PieceType = PieceType.Custom;
             camel.BaseCost = 2; // Slightly less valuable than knight (fewer moves on small boards)
-
-            camel.BaseStats = new UnitBaseStats
-            {
-                Health = 40,
-                Attack = 7,
-                Defense = 2,
-                Speed = 8,
-                Range = 1,
-                Movement = 1
-            };
-
-            camel.GrowthStats = UnitGrowthStats.Default;
 
             camel.MovementPatterns = new List<MovementPattern>
             {
@@ -298,18 +222,6 @@ namespace BizarreChess.Core.Factories
             crossbowman.DisplayName = "Crossbowman";
             crossbowman.PieceType = PieceType.Custom;
             crossbowman.BaseCost = 4;
-
-            crossbowman.BaseStats = new UnitBaseStats
-            {
-                Health = 35,
-                Attack = 9,
-                Defense = 2,
-                Speed = 4,
-                Range = 3,
-                Movement = 1
-            };
-
-            crossbowman.GrowthStats = UnitGrowthStats.Default;
 
             crossbowman.MovementPatterns = new List<MovementPattern>
             {
@@ -340,24 +252,6 @@ namespace BizarreChess.Core.Factories
             pawn.PromotionRow = 7; // Will be mirrored for player 2
             pawn.BaseCost = 1;
 
-            pawn.BaseStats = new UnitBaseStats
-            {
-                Health = 20,
-                Attack = 5,
-                Defense = 1,
-                Speed = 4,
-                Range = 1,
-                Movement = 1
-            };
-
-            pawn.GrowthStats = new UnitGrowthStats
-            {
-                HealthPerLevel = 3,
-                AttackPerLevel = 1,
-                DefensePerLevel = 1,
-                SpeedPerLevel = 0
-            };
-
             pawn.MovementPatterns = new List<MovementPattern>
             {
                 new MovementPattern(MovementType.Forward, 1) { MoveOnly = true },
@@ -385,24 +279,6 @@ namespace BizarreChess.Core.Factories
             lancer.PromotionRow = 7;
             lancer.BaseCost = 1;
 
-            lancer.BaseStats = new UnitBaseStats
-            {
-                Health = 25,
-                Attack = 6,
-                Defense = 1,
-                Speed = 4,
-                Range = 1,
-                Movement = 1
-            };
-
-            lancer.GrowthStats = new UnitGrowthStats
-            {
-                HealthPerLevel = 3,
-                AttackPerLevel = 1,
-                DefensePerLevel = 1,
-                SpeedPerLevel = 0
-            };
-
             lancer.MovementPatterns = new List<MovementPattern>
             {
                 // Moves AND captures forward (unlike pawn which captures diagonally)
@@ -418,6 +294,40 @@ namespace BizarreChess.Core.Factories
             ApplyPieceTextures(lancer, "Lancer");
 
             return lancer;
+        }
+
+        private static UnitDefinition CreateDefenderDefinition()
+        {
+            var defender = ScriptableObject.CreateInstance<UnitDefinition>();
+            defender.UnitId = "Defender";
+            defender.DisplayName = "Defender";
+            defender.PieceType = PieceType.Pawn; // Pawn variant
+            defender.CanPromote = true;
+            defender.CanEnPassant = false; // No en passant for defender
+            defender.PromotionRow = 7;
+            defender.BaseCost = 2; // Slightly more expensive due to forcefield
+
+            // Same as pawn but NO double move on first turn
+            defender.MovementPatterns = new List<MovementPattern>
+            {
+                new MovementPattern(MovementType.Forward, 1) { MoveOnly = true },
+                new MovementPattern(MovementType.Forward, 2) { FirstMoveOnly = true }
+            };
+
+            // Forcefield skill - blocks one capture
+            defender.Skills = new List<Skill>
+            {
+                new ForcefieldSkill()
+            };
+
+            // Use pawn unicode as fallback
+            defender.UnicodeWhite = ChessUnicode.WhitePawn;
+            defender.UnicodeBlack = ChessUnicode.BlackPawn;
+
+            // 3D Rendering - will fallback to token if no texture
+            ApplyPieceTextures(defender, "Defender");
+
+            return defender;
         }
 
         #endregion
@@ -461,4 +371,3 @@ namespace BizarreChess.Core.Factories
 
     }
 }
-

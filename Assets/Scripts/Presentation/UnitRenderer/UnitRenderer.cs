@@ -2,6 +2,7 @@ using UnityEngine;
 using TMPro;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Player;
+using BizarreChess.Core.Skills;
 
 namespace BizarreChess.Presentation.UnitRenderer
 {
@@ -36,6 +37,10 @@ namespace BizarreChess.Presentation.UnitRenderer
         [SerializeField] private float _dragRotationSpeed = 12f;
         [SerializeField] private float _dragTiltAngle = 15f;
         [SerializeField] private float _minDragDistanceForRotation = 0.05f;
+        
+        [Header("Forcefield Settings")]
+        [SerializeField] private float _forcefieldScale = 1.4f;
+        [SerializeField] private float _forcefieldVerticalOffset = 0.3f;
 
         public int UnitId { get; private set; }
         public System.Action OnClicked;
@@ -62,6 +67,14 @@ namespace BizarreChess.Presentation.UnitRenderer
         private float _currentDragTilt;     // Forward tilt during drag
         private float _targetDragYaw;
         private bool _hasValidDragDirection;
+        
+        // Forcefield state
+        private bool _hasForcefield;
+        private Color _forcefieldColor;
+        private GameObject _forcefieldObject;
+        private MeshRenderer _forcefieldRenderer;
+        private Material _forcefieldMaterial;
+        private static Shader _forcefieldShader;
 
         public void Initialize(UnitState state, UnitDefinition definition, Vector3 position)
         {
@@ -90,12 +103,103 @@ namespace BizarreChess.Presentation.UnitRenderer
                 transform.position = position + Vector3.up * 0.5f; // 2D fallback hovers above
             }
 
+            // Check for active forcefield skill
+            CheckForcefieldStatus();
+
             UpdateVisuals();
+        }
+        
+        /// <summary>
+        /// Check if the unit has an active Forcefield skill.
+        /// </summary>
+        private void CheckForcefieldStatus()
+        {
+            var forcefield = _currentState.Skills?.Find(s => s is ForcefieldSkill) as ForcefieldSkill;
+            bool shouldHaveForcefield = forcefield != null && forcefield.IsActive;
+            
+            if (shouldHaveForcefield && !_hasForcefield)
+            {
+                // Create forcefield visual
+                var colorScheme = PlayerColors.Get(_currentState.OwnerId);
+                _forcefieldColor = colorScheme.SecondaryColor;
+                CreateForcefieldObject();
+            }
+            else if (!shouldHaveForcefield && _hasForcefield)
+            {
+                // Remove forcefield visual
+                DestroyForcefieldObject();
+            }
+            
+            _hasForcefield = shouldHaveForcefield;
+        }
+        
+        /// <summary>
+        /// Create the cloud-like forcefield sphere around the unit.
+        /// </summary>
+        private void CreateForcefieldObject()
+        {
+            if (_forcefieldObject != null) return;
+            
+            // Load shader if not cached
+            if (_forcefieldShader == null)
+            {
+                _forcefieldShader = Shader.Find("BizarreChess/Forcefield");
+            }
+            
+            // Create sphere
+            _forcefieldObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _forcefieldObject.name = "Forcefield";
+            _forcefieldObject.transform.SetParent(transform);
+            _forcefieldObject.transform.localPosition = Vector3.up * _forcefieldVerticalOffset;
+            _forcefieldObject.transform.localScale = Vector3.one * _forcefieldScale;
+            
+            // Remove collider (we don't want it to interfere)
+            var collider = _forcefieldObject.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            
+            // Setup material
+            _forcefieldRenderer = _forcefieldObject.GetComponent<MeshRenderer>();
+            if (_forcefieldShader != null)
+            {
+                _forcefieldMaterial = new Material(_forcefieldShader);
+                _forcefieldMaterial.SetColor("_Color", new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.35f));
+                _forcefieldRenderer.material = _forcefieldMaterial;
+            }
+            else
+            {
+                // Fallback to standard transparent
+                _forcefieldMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                _forcefieldMaterial.SetFloat("_Surface", 1); // Transparent
+                _forcefieldMaterial.SetFloat("_Blend", 0); // Alpha
+                _forcefieldMaterial.SetColor("_BaseColor", new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.3f));
+                _forcefieldMaterial.SetFloat("_Smoothness", 0.9f);
+                _forcefieldRenderer.material = _forcefieldMaterial;
+            }
+        }
+        
+        /// <summary>
+        /// Destroy the forcefield visual object.
+        /// </summary>
+        private void DestroyForcefieldObject()
+        {
+            if (_forcefieldObject != null)
+            {
+                Destroy(_forcefieldObject);
+                _forcefieldObject = null;
+                _forcefieldRenderer = null;
+            }
+            
+            if (_forcefieldMaterial != null)
+            {
+                Destroy(_forcefieldMaterial);
+                _forcefieldMaterial = null;
+            }
         }
 
         public void UpdateState(UnitState state)
         {
             _currentState = state;
+            CheckForcefieldStatus();
             UpdateVisuals();
         }
 
@@ -140,12 +244,10 @@ namespace BizarreChess.Presentation.UnitRenderer
                 if (_unicodeText != null) _unicodeText.enabled = false;
             }
 
-            // Update health bar
-            if (_healthBar != null && _healthFill != null)
+            // Health bar disabled - no combat system
+            if (_healthBar != null)
             {
-                float healthPercent = (float)_currentState.CurrentHealth / _currentState.MaxHealth;
-                _healthFill.localScale = new Vector3(healthPercent, 1, 1);
-                _healthBar.SetActive(healthPercent < 1f);
+                _healthBar.SetActive(false);
             }
 
             // Selection indicator
@@ -189,6 +291,7 @@ namespace BizarreChess.Presentation.UnitRenderer
                 }
                 else
                 {
+                    // Disable emission when not selected
                     _meshRenderer.material.DisableKeyword("_EMISSION");
                     _meshRenderer.material.SetColor("_EmissionColor", Color.black);
                 }
@@ -272,6 +375,8 @@ namespace BizarreChess.Presentation.UnitRenderer
                     transform.position = currentPos;
                 }
             }
+            
+            // Forcefield handled by shader animation, no per-frame update needed
         }
         
         #region Drag and Drop
@@ -569,6 +674,105 @@ namespace BizarreChess.Presentation.UnitRenderer
 
             gameObject.SetActive(false);
         }
+
+        #region Forcefield
+
+        /// <summary>
+        /// Set the forcefield active state manually (for network sync or testing).
+        /// </summary>
+        public void SetForcefieldActive(bool active, int ownerId)
+        {
+            if (active && !_hasForcefield)
+            {
+                var colorScheme = PlayerColors.Get(ownerId);
+                _forcefieldColor = colorScheme.SecondaryColor;
+                CreateForcefieldObject();
+            }
+            else if (!active && _hasForcefield)
+            {
+                DestroyForcefieldObject();
+            }
+            
+            _hasForcefield = active;
+        }
+
+        /// <summary>
+        /// Play the animation when the forcefield blocks an attack and is consumed.
+        /// </summary>
+        public void PlayForcefieldBreakAnimation()
+        {
+            _hasForcefield = false;
+            StartCoroutine(ForcefieldBreakCoroutine());
+        }
+
+        private System.Collections.IEnumerator ForcefieldBreakCoroutine()
+        {
+            if (_forcefieldObject == null || _forcefieldMaterial == null)
+            {
+                DestroyForcefieldObject();
+                yield break;
+            }
+
+            float expandDuration = 0.2f;
+            float fadeDuration = 0.3f;
+            
+            Vector3 originalScale = _forcefieldObject.transform.localScale;
+            Vector3 expandedScale = originalScale * 1.8f;
+            Color originalColor = _forcefieldMaterial.GetColor("_Color");
+            
+            // Phase 1: Expand and flash bright
+            float elapsed = 0f;
+            while (elapsed < expandDuration)
+            {
+                float t = elapsed / expandDuration;
+                float easeOut = 1f - (1f - t) * (1f - t); // Ease out quad
+                
+                _forcefieldObject.transform.localScale = Vector3.Lerp(originalScale, expandedScale, easeOut);
+                
+                // Flash brighter
+                Color flashColor = new Color(
+                    Mathf.Min(originalColor.r * 2f, 1f),
+                    Mathf.Min(originalColor.g * 2f, 1f),
+                    Mathf.Min(originalColor.b * 2f, 1f),
+                    originalColor.a * (1f + easeOut)
+                );
+                _forcefieldMaterial.SetColor("_Color", flashColor);
+                
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            // Phase 2: Fade out while continuing to expand
+            elapsed = 0f;
+            Vector3 startScale = _forcefieldObject.transform.localScale;
+            Vector3 finalScale = expandedScale * 1.3f;
+            
+            while (elapsed < fadeDuration)
+            {
+                float t = elapsed / fadeDuration;
+                
+                _forcefieldObject.transform.localScale = Vector3.Lerp(startScale, finalScale, t);
+                
+                // Fade alpha to 0
+                Color fadeColor = new Color(
+                    originalColor.r * 2f,
+                    originalColor.g * 2f,
+                    originalColor.b * 2f,
+                    Mathf.Lerp(originalColor.a * 2f, 0f, t)
+                );
+                _forcefieldMaterial.SetColor("_Color", fadeColor);
+                
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            // Destroy the forcefield object
+            DestroyForcefieldObject();
+            
+            Debug.Log($"[UnitRenderer] Forcefield break animation complete for unit {UnitId}");
+        }
+
+        #endregion
 
         // Click handling moved to InputHandler (OnMouseDown uses old Input system)
     }

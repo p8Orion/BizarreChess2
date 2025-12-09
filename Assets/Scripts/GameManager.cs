@@ -256,6 +256,7 @@ namespace BizarreChess
             Debug.Log("[GameManager] Subscribing to NetworkedGameState events");
             _networkedGameState.OnUnitMoved += OnNetworkUnitMoved;
             _networkedGameState.OnUnitCaptured += OnNetworkUnitCaptured;
+            _networkedGameState.OnCaptureBlocked += OnNetworkCaptureBlocked;
             _networkedGameState.OnTurnChanged += OnNetworkTurnChanged;
             _networkedGameState.OnGameEnded += OnNetworkGameEnded;
             _networkedGameState.OnGameStarted += OnNetworkGameStarted;
@@ -327,6 +328,25 @@ namespace BizarreChess
             {
                 renderer.PlayDeathAnimation();
             }
+        }
+
+        private void OnNetworkCaptureBlocked(int attackerUnitId, int defenderUnitId, int fromNode)
+        {
+            Debug.Log($"[GameManager] Network capture blocked! Attacker {attackerUnitId} bounces back, defender {defenderUnitId}'s forcefield consumed");
+            
+            // Play forcefield break animation on the defender
+            if (_unitRenderers.TryGetValue(defenderUnitId, out var defenderRenderer))
+            {
+                defenderRenderer.PlayForcefieldBreakAnimation();
+            }
+            
+            // Attacker bounces back to original position visually
+            if (_unitRenderers.TryGetValue(attackerUnitId, out var attackerRenderer))
+            {
+                attackerRenderer.MoveTo(GetWorldPosition(fromNode));
+            }
+            
+            ClearSelection();
         }
 
         private void OnNetworkTurnChanged()
@@ -663,11 +683,8 @@ namespace BizarreChess
                 if (unit != null)
                 {
                     ownerId = unit.OwnerId;
-                    if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
-                    {
-                        categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, def, _gameState.Units);
-                        _validMoves = categorizedMoves.GetAll();
-                    }
+                    categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, _gameState.Units);
+                    _validMoves = categorizedMoves.GetAll();
                 }
             }
             else
@@ -790,11 +807,8 @@ namespace BizarreChess
                 if (unit != null)
                 {
                     ownerId = unit.OwnerId;
-                    if (_unitDefinitions.TryGetValue(unit.DefinitionId, out var def))
-                    {
-                        categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, def, _gameState.Units);
-                        _hoverMoves = categorizedMoves.GetAll();
-                    }
+                    categorizedMoves = _moveValidator.GetCategorizedMovesForUnit(unit, _gameState.Units);
+                    _hoverMoves = categorizedMoves.GetAll();
                 }
             }
             else
@@ -1109,19 +1123,39 @@ namespace BizarreChess
                 return;
             }
 
-            // Handle capture visually
-            if (result.IsCapture && result.CapturedUnitId.HasValue)
+            // Handle Forcefield blocking the capture
+            if (result.CaptureBlocked && result.ForcefieldConsumedUnitId.HasValue)
             {
-                if (_unitRenderers.TryGetValue(result.CapturedUnitId.Value, out var capturedRenderer))
+                // Play forcefield break animation on the defender
+                if (_unitRenderers.TryGetValue(result.ForcefieldConsumedUnitId.Value, out var defenderRenderer))
                 {
-                    capturedRenderer.PlayDeathAnimation();
+                    defenderRenderer.PlayForcefieldBreakAnimation();
                 }
+                
+                // Attacker bounces back to original position visually
+                if (_unitRenderers.TryGetValue(unitId, out var attackerRenderer))
+                {
+                    attackerRenderer.MoveTo(GetWorldPosition(result.FromNode));
+                }
+                
+                Debug.Log($"[GameManager] Capture blocked by Forcefield! Attacker bounces back.");
             }
-
-            // Animate - only move visually if NOT a ranged capture
-            if (!result.IsRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
+            else
             {
-                renderer.MoveTo(GetWorldPosition(result.ToNode));
+                // Handle capture visually (only if not blocked)
+                if (result.IsCapture && result.CapturedUnitId.HasValue)
+                {
+                    if (_unitRenderers.TryGetValue(result.CapturedUnitId.Value, out var capturedRenderer))
+                    {
+                        capturedRenderer.PlayDeathAnimation();
+                    }
+                }
+
+                // Animate - only move visually if NOT a ranged capture and NOT blocked
+                if (!result.IsRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
+                {
+                    renderer.MoveTo(GetWorldPosition(result.ToNode));
+                }
             }
 
             // Check if game ended

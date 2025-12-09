@@ -4,6 +4,7 @@ using System.Linq;
 using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
+using BizarreChess.Core.Skills;
 
 namespace BizarreChess.Core.Rules
 {
@@ -25,6 +26,17 @@ namespace BizarreChess.Core.Rules
         public bool IsCapture { get; set; }
         public int? CapturedUnitId { get; set; }
         public bool IsRangedCapture { get; set; }
+        
+        /// <summary>
+        /// True if the capture was blocked by a Forcefield skill.
+        /// The attacker should bounce back to their original position.
+        /// </summary>
+        public bool CaptureBlocked { get; set; }
+        
+        /// <summary>
+        /// The unit ID whose Forcefield was consumed (for visual feedback).
+        /// </summary>
+        public int? ForcefieldConsumedUnitId { get; set; }
         
         // Game state after move
         public bool GameEnded { get; set; }
@@ -156,25 +168,65 @@ namespace BizarreChess.Core.Rules
         #region Actions
 
         /// <summary>
-        /// Execute a move action.
+        /// Result of attempting to execute a move, including capture blocking.
+        /// </summary>
+        public class MoveResult
+        {
+            public bool CaptureBlocked;
+            public int? ForcefieldConsumedUnitId;
+        }
+
+        /// <summary>
+        /// Execute a move action (chess-style: capture = eliminate).
+        /// Returns info about whether the capture was blocked by skills like Forcefield.
         /// </summary>
         /// <param name="isRangedCapture">If true, the unit captures without moving (ranged attack)</param>
-        public void ExecuteMove(int unitId, int targetNode, bool isCapture = false, int? capturedUnitId = null, bool isRangedCapture = false)
+        public MoveResult ExecuteMove(int unitId, int targetNode, bool isCapture = false, int? capturedUnitId = null, bool isRangedCapture = false)
         {
+            var result = new MoveResult();
             var unit = GetUnit(unitId);
-            if (unit == null) return;
+            if (unit == null) return result;
 
             int fromNode = unit.CurrentNodeId;
 
-            // Handle capture
+            // Handle capture (chess-style: instant elimination)
             if (isCapture && capturedUnitId.HasValue)
             {
                 var captured = GetUnit(capturedUnitId.Value);
                 if (captured != null)
                 {
+                    // Check for Forcefield skill
+                    var forcefield = captured.Skills?.OfType<ForcefieldSkill>().FirstOrDefault();
+                    if (forcefield != null && forcefield.TryBlockCapture())
+                    {
+                        // Capture blocked! Attacker bounces back
+                        result.CaptureBlocked = true;
+                        result.ForcefieldConsumedUnitId = captured.UnitId;
+                        
+                        // Remove the consumed forcefield skill from the unit
+                        captured.RemoveSkill("Forcefield");
+                        
+                        // Record the blocked capture action
+                        ActionHistory.Add(new GameAction
+                        {
+                            Type = ActionType.CaptureBlocked,
+                            UnitId = unitId,
+                            FromNode = fromNode,
+                            ToNode = targetNode,
+                            TargetUnitId = capturedUnitId,
+                            TurnNumber = TurnNumber,
+                            PlayerId = CurrentPlayerId
+                        });
+                        
+                        // Attacker doesn't move, turn still ends
+                        unit.HasMovedThisTurn = true;
+                        unit.HasActedThisTurn = true;
+                        
+                        return result;
+                    }
+                    
+                    // No forcefield or already consumed - capture succeeds
                     captured.IsAlive = false;
-                    // Award experience
-                    unit.AddExperience(50);
                 }
             }
 
@@ -207,6 +259,8 @@ namespace BizarreChess.Core.Rules
             {
                 HandleNodeEffect(unit, targetNode);
             }
+
+            return result;
         }
 
         /// <summary>
@@ -237,10 +291,13 @@ namespace BizarreChess.Core.Rules
 
             // Execute the move
             int fromNode = unit.CurrentNodeId;
-            ExecuteMove(unitId, targetNode, validation.IsCapture, validation.CapturedUnitId, validation.IsRangedCapture);
+            var moveResult = ExecuteMove(unitId, targetNode, validation.IsCapture, validation.CapturedUnitId, validation.IsRangedCapture);
 
-            // Check win conditions
-            CheckWinConditions(validator);
+            // Check win conditions (only if capture wasn't blocked)
+            if (!moveResult.CaptureBlocked)
+            {
+                CheckWinConditions(validator);
+            }
 
             bool gameEnded = Phase == GamePhase.Ended;
             int? winnerId = WinnerId;
@@ -258,9 +315,11 @@ namespace BizarreChess.Core.Rules
                 UnitId = unitId,
                 FromNode = fromNode,
                 ToNode = targetNode,
-                IsCapture = validation.IsCapture,
-                CapturedUnitId = validation.CapturedUnitId,
+                IsCapture = validation.IsCapture && !moveResult.CaptureBlocked, // Only count as capture if not blocked
+                CapturedUnitId = moveResult.CaptureBlocked ? null : validation.CapturedUnitId,
                 IsRangedCapture = validation.IsRangedCapture,
+                CaptureBlocked = moveResult.CaptureBlocked,
+                ForcefieldConsumedUnitId = moveResult.ForcefieldConsumedUnitId,
                 GameEnded = gameEnded,
                 WinnerId = winnerId,
                 EndReason = endReason,
@@ -269,52 +328,12 @@ namespace BizarreChess.Core.Rules
             };
         }
 
-        /// <summary>
-        /// Execute an attack action (for games with separate attack).
-        /// </summary>
-        public void ExecuteAttack(int attackerId, int targetId)
-        {
-            var attacker = GetUnit(attackerId);
-            var target = GetUnit(targetId);
-            if (attacker == null || target == null) return;
-
-            // Calculate damage
-            int damage = attacker.Attack;
-            target.TakeDamage(damage);
-
-            attacker.HasActedThisTurn = true;
-
-            if (!target.IsAlive)
-            {
-                attacker.AddExperience(50);
-            }
-
-            // Record action
-            ActionHistory.Add(new GameAction
-            {
-                Type = ActionType.Attack,
-                UnitId = attackerId,
-                TargetUnitId = targetId,
-                Damage = damage,
-                TurnNumber = TurnNumber,
-                PlayerId = CurrentPlayerId
-            });
-        }
-
         private void HandleNodeEffect(UnitState unit, int nodeId)
         {
             var node = BoardState.GetNode(nodeId);
 
             switch (node.CurrentType)
             {
-                case NodeType.Boost:
-                    unit.AddModifier(Modifier.CreateBuff("Attack", 2, 3, "BoostTile"));
-                    break;
-
-                case NodeType.Trap:
-                    unit.TakeDamage(10);
-                    break;
-
                 case NodeType.Teleport:
                     if (node.TeleportTargetId >= 0 && BoardState.IsNodePassable(node.TeleportTargetId))
                     {
@@ -324,6 +343,12 @@ namespace BizarreChess.Core.Rules
 
                 case NodeType.Unstable:
                     // Nothing immediate, but node might collapse
+                    break;
+
+                // Future: Boost and Trap effects will be handled via Skills
+                case NodeType.Boost:
+                case NodeType.Trap:
+                    // TODO: Trigger skill-based effects
                     break;
             }
         }
@@ -467,15 +492,14 @@ namespace BizarreChess.Core.Rules
         public int? ToNode;
         public int? TargetUnitId;
         public int? CapturedUnitId;
-        public int? Damage;
         public string AbilityId;
     }
 
     public enum ActionType
     {
         Move,
-        Attack,
         RangedCapture, // Capture without moving (e.g., Crossbowman)
+        CaptureBlocked, // Capture was blocked by Forcefield
         Ability,
         Spawn,
         EndTurn
@@ -483,4 +507,3 @@ namespace BizarreChess.Core.Rules
 
     #endregion
 }
-

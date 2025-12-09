@@ -36,6 +36,7 @@ namespace BizarreChess.Networking
         // Events
         public System.Action<int, int, int, bool> OnUnitMoved; // unitId, fromNode, toNode, isRangedCapture
         public System.Action<int> OnUnitCaptured; // unitId
+        public System.Action<int, int, int> OnCaptureBlocked; // attackerUnitId, defenderUnitId, fromNode (attacker bounces back)
         public System.Action OnTurnChanged;
         public System.Action<int> OnGameEnded; // winnerId (-1 for draw)
         public System.Action OnGameStarted; // Called when game begins
@@ -289,14 +290,23 @@ namespace BizarreChess.Networking
                 return;
             }
 
-            Debug.Log($"[NetworkedGameState] Move executed: Unit {unitId} from {result.FromNode} to {result.ToNode}, isRangedCapture={result.IsRangedCapture}");
+            Debug.Log($"[NetworkedGameState] Move executed: Unit {unitId} from {result.FromNode} to {result.ToNode}, isRangedCapture={result.IsRangedCapture}, captureBlocked={result.CaptureBlocked}");
 
-            // Notify all clients
-            BroadcastMoveClientRpc(unitId, result.FromNode, result.ToNode, result.IsRangedCapture);
-
-            if (result.IsCapture && result.CapturedUnitId.HasValue)
+            // Check if capture was blocked by forcefield
+            if (result.CaptureBlocked && result.ForcefieldConsumedUnitId.HasValue)
             {
-                BroadcastCaptureClientRpc(result.CapturedUnitId.Value);
+                // Broadcast capture blocked - attacker bounces back
+                BroadcastCaptureBlockedClientRpc(unitId, result.ForcefieldConsumedUnitId.Value, result.FromNode);
+            }
+            else
+            {
+                // Normal move - notify all clients
+                BroadcastMoveClientRpc(unitId, result.FromNode, result.ToNode, result.IsRangedCapture);
+
+                if (result.IsCapture && result.CapturedUnitId.HasValue)
+                {
+                    BroadcastCaptureClientRpc(result.CapturedUnitId.Value);
+                }
             }
 
             // Update network state
@@ -493,6 +503,32 @@ namespace BizarreChess.Networking
         }
 
         [ClientRpc]
+        private void BroadcastCaptureBlockedClientRpc(int attackerUnitId, int defenderUnitId, int fromNode)
+        {
+            Debug.Log($"[NetworkedGameState] Capture blocked! Attacker {attackerUnitId} bounces back to {fromNode}, defender {defenderUnitId}'s forcefield consumed");
+            
+            // Update local game state on clients - remove forcefield from defender
+            if (!IsServer && _gameState != null)
+            {
+                var defender = _gameState.GetUnit(defenderUnitId);
+                if (defender != null)
+                {
+                    defender.RemoveSkill("Forcefield");
+                }
+                
+                // Mark attacker as having acted this turn
+                var attacker = _gameState.GetUnit(attackerUnitId);
+                if (attacker != null)
+                {
+                    attacker.HasMovedThisTurn = true;
+                    attacker.HasActedThisTurn = true;
+                }
+            }
+            
+            OnCaptureBlocked?.Invoke(attackerUnitId, defenderUnitId, fromNode);
+        }
+
+        [ClientRpc]
         private void BroadcastTurnEndClientRpc()
         {
             Debug.Log($"[NetworkedGameState] Turn end broadcast received. Current player: {CurrentPlayerId.Value}");
@@ -547,10 +583,7 @@ namespace BizarreChess.Networking
             if (unit == null)
                 return new MoveTargets();
 
-            if (!_chessSetup.Pieces.TryGetValue(unit.DefinitionId, out var definition))
-                return new MoveTargets();
-
-            return _moveValidator.GetCategorizedMovesForUnit(unit, definition, _gameState.Units);
+            return _moveValidator.GetCategorizedMovesForUnit(unit, _gameState.Units);
         }
 
         /// <summary>
