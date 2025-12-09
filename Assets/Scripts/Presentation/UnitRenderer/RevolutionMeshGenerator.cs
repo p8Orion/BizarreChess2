@@ -192,24 +192,41 @@ namespace BizarreChess.Presentation.UnitRenderer
 
         /// <summary>
         /// Create a complete GameObject with revolution mesh and material.
+        /// Uses MeshCache to load pre-baked meshes when available.
         /// </summary>
         /// <param name="profileTexture">Profile texture for mesh generation</param>
         /// <param name="playerId">Player ID for color/texture scheme</param>
         /// <param name="height">Target height</param>
+        /// <param name="pieceName">Name of the piece for caching (optional, uses texture name if null)</param>
         public static GameObject CreateRevolutionObject(
             Texture2D profileTexture, 
             int playerId, 
-            float height = DEFAULT_HEIGHT)
+            float height = DEFAULT_HEIGHT,
+            string pieceName = null)
         {
             var go = new GameObject("RevolutionPiece");
 
+            // Use piece name from texture if not provided
+            string cacheName = pieceName ?? (profileTexture != null ? profileTexture.name : "Default");
+            
             var meshFilter = go.AddComponent<MeshFilter>();
-            meshFilter.mesh = GenerateRevolutionMesh(profileTexture, height);
+            // Use MeshCache to get or create the mesh
+            meshFilter.mesh = MeshCache.GetOrCreateMesh(cacheName, profileTexture, height);
 
             var meshRenderer = go.AddComponent<MeshRenderer>();
             
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit") 
-                         ?? Shader.Find("Standard");
+            // Find shader - try multiple options for WebGL compatibility
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (shader == null) shader = Shader.Find("Standard");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null)
+            {
+                Debug.LogError("[RevolutionMeshGenerator] No shader found! Make sure URP shaders are included in build.");
+                // Last resort - use any available shader
+                shader = Shader.Find("Hidden/InternalErrorShader");
+            }
+            
             var mat = new Material(shader);
             
             // Apply player color scheme (texture + tint)
@@ -235,7 +252,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             bool isWhite, 
             float height = DEFAULT_HEIGHT)
         {
-            return CreateRevolutionObject(profileTexture, isWhite ? 0 : 1, height);
+            return CreateRevolutionObject(profileTexture, isWhite ? 0 : 1, height, null);
         }
         
         /// <summary>

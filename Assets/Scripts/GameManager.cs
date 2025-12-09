@@ -1178,6 +1178,26 @@ namespace BizarreChess
         }
 
         /// <summary>
+        /// Host a multiplayer game using Unity Relay.
+        /// </summary>
+        public async void HostGameWithRelay()
+        {
+            _offlineMode = false;
+            SetupNetworkCallbacks();
+            await _networkManager?.StartHostWithRelayAsync();
+        }
+
+        /// <summary>
+        /// Join a multiplayer game using Unity Relay join code.
+        /// </summary>
+        public async void JoinGameWithRelay(string joinCode)
+        {
+            _offlineMode = false;
+            SetupNetworkCallbacks();
+            await _networkManager?.StartClientWithRelayAsync(joinCode);
+        }
+
+        /// <summary>
         /// Get the current profile service.
         /// </summary>
         public IProfileService GetProfileService() => _profileService;

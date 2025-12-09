@@ -21,6 +21,12 @@ namespace BizarreChess.Presentation
         [SerializeField] private Button _offlineButton;
         [SerializeField] private TMP_InputField _addressInput;
 
+        [Header("Relay")]
+        [SerializeField] private Button _hostRelayButton;
+        [SerializeField] private Button _joinRelayButton;
+        [SerializeField] private TMP_InputField _joinCodeInput;
+        [SerializeField] private TextMeshProUGUI _joinCodeDisplay;
+
         [Header("Game HUD")]
         [SerializeField] private TextMeshProUGUI _turnText;
         [SerializeField] private TextMeshProUGUI _statusText;
@@ -68,13 +74,27 @@ namespace BizarreChess.Presentation
         {
             _mainMenuPanel = CreatePanel("MainMenuPanel");
 
-            var title = CreateText(_mainMenuPanel.transform, "Bizarre Chess", 48, new Vector2(0, 150));
+            var title = CreateText(_mainMenuPanel.transform, "Bizarre Chess", 48, new Vector2(0, 200));
             
-            _offlineButton = CreateButton(_mainMenuPanel.transform, "Play Offline", new Vector2(0, 50));
-            _hostButton = CreateButton(_mainMenuPanel.transform, "Host Game", new Vector2(0, -10));
-            _joinButton = CreateButton(_mainMenuPanel.transform, "Join Game", new Vector2(0, -70));
+            _offlineButton = CreateButton(_mainMenuPanel.transform, "Play Offline", new Vector2(0, 120));
             
-            _addressInput = CreateInputField(_mainMenuPanel.transform, "127.0.0.1", new Vector2(0, -130));
+            // Relay section
+            var relayLabel = CreateText(_mainMenuPanel.transform, "— Online (Relay) —", 18, new Vector2(0, 70));
+            _hostRelayButton = CreateButton(_mainMenuPanel.transform, "Host (Relay)", new Vector2(0, 30));
+            _joinCodeInput = CreateInputField(_mainMenuPanel.transform, "Enter Code", new Vector2(-60, -30));
+            _joinCodeInput.characterLimit = 6;
+            _joinRelayButton = CreateButton(_mainMenuPanel.transform, "Join", new Vector2(80, -30));
+            _joinRelayButton.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 40);
+            _joinCodeDisplay = CreateText(_mainMenuPanel.transform, "", 24, new Vector2(0, -80));
+            _joinCodeDisplay.fontStyle = TMPro.FontStyles.Bold;
+            _joinCodeDisplay.color = Color.yellow;
+            
+            // Direct connection section (LAN)
+            var lanLabel = CreateText(_mainMenuPanel.transform, "— Direct (LAN) —", 18, new Vector2(0, -130));
+            _hostButton = CreateButton(_mainMenuPanel.transform, "Host (LAN)", new Vector2(0, -170));
+            _addressInput = CreateInputField(_mainMenuPanel.transform, "127.0.0.1", new Vector2(-60, -220));
+            _joinButton = CreateButton(_mainMenuPanel.transform, "Join", new Vector2(80, -220));
+            _joinButton.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 40);
         }
 
         private void CreateGameUI()
@@ -236,7 +256,10 @@ namespace BizarreChess.Presentation
             input.textComponent = text;
             input.placeholder = phText;
             input.textViewport = textAreaRect;
-            input.text = placeholder;
+            input.text = "";  // Start empty, placeholder will show
+            input.caretColor = Color.white;
+            input.caretWidth = 2;
+            input.customCaretColor = true;
 
             return input;
         }
@@ -256,6 +279,13 @@ namespace BizarreChess.Presentation
             if (_joinButton != null)
                 _joinButton.onClick.AddListener(OnJoinClicked);
 
+            // Relay buttons
+            if (_hostRelayButton != null)
+                _hostRelayButton.onClick.AddListener(OnHostRelayClicked);
+            
+            if (_joinRelayButton != null)
+                _joinRelayButton.onClick.AddListener(OnJoinRelayClicked);
+
             if (_resignButton != null)
                 _resignButton.onClick.AddListener(OnResignClicked);
 
@@ -269,6 +299,12 @@ namespace BizarreChess.Presentation
             if (_gameManager != null)
             {
                 _gameManager.OnGameEnded += OnGameEnded;
+            }
+
+            // Network events
+            if (_networkManager != null)
+            {
+                _networkManager.OnRelayJoinCodeGenerated += OnRelayJoinCodeGenerated;
             }
 
             SubscribeToNetworkEvents();
@@ -313,6 +349,33 @@ namespace BizarreChess.Presentation
             ShowGamePanel();
             _gameManager?.JoinGame(address);
             _statusText.text = $"Connecting to {address}...";
+        }
+
+        private void OnHostRelayClicked()
+        {
+            ShowGamePanel();
+            _gameManager?.HostGameWithRelay();
+            _statusText.text = "Creating Relay... Please wait";
+        }
+
+        private void OnJoinRelayClicked()
+        {
+            string joinCode = _joinCodeInput?.text?.Trim().ToUpper();
+            if (string.IsNullOrEmpty(joinCode))
+            {
+                _joinCodeDisplay.text = "Enter a valid code!";
+                _joinCodeDisplay.color = Color.red;
+                return;
+            }
+            ShowGamePanel();
+            _gameManager?.JoinGameWithRelay(joinCode);
+            _statusText.text = $"Joining with code: {joinCode}...";
+        }
+
+        private void OnRelayJoinCodeGenerated(string joinCode)
+        {
+            _statusText.text = $"Code: {joinCode} - Waiting for opponent";
+            Debug.Log($"[GameUI] Relay Join Code: {joinCode}");
         }
 
         private void OnResignClicked()
