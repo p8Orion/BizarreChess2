@@ -5,6 +5,7 @@ using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
 using BizarreChess.Core.Skills;
+using BizarreChess.Core.Items;
 
 namespace BizarreChess.Core.Rules
 {
@@ -47,6 +48,17 @@ namespace BizarreChess.Core.Rules
         public int NewTurnNumber { get; set; }
         public int NewCurrentPlayerId { get; set; }
         
+        // Item info
+        /// <summary>
+        /// ID of item dropped by captured unit (if any).
+        /// </summary>
+        public string DroppedItemId { get; set; }
+        
+        /// <summary>
+        /// Node where item was dropped (if any).
+        /// </summary>
+        public int? DroppedItemNodeId { get; set; }
+        
         public static MoveExecutionResult Failed(string error) => new MoveExecutionResult { Success = false, Error = error };
     }
     
@@ -69,6 +81,9 @@ namespace BizarreChess.Core.Rules
         public List<UnitState> Units;
         private int _nextUnitId;
 
+        // Items
+        public List<Item> Items;
+
         // Players
         public List<PlayerState> Players;
 
@@ -82,6 +97,7 @@ namespace BizarreChess.Core.Rules
         public GameState()
         {
             Units = new List<UnitState>();
+            Items = new List<Item>();
             Players = new List<PlayerState>();
             ActionHistory = new List<GameAction>();
             Phase = GamePhase.Setup;
@@ -165,6 +181,50 @@ namespace BizarreChess.Core.Rules
 
         #endregion
 
+        #region Item Queries
+
+        /// <summary>
+        /// Get an item by its ID.
+        /// </summary>
+        public Item GetItem(string itemId)
+        {
+            return Items.FirstOrDefault(i => i.Id == itemId);
+        }
+
+        /// <summary>
+        /// Get the item at a specific node (if any).
+        /// </summary>
+        public Item GetItemAtNode(int nodeId)
+        {
+            return Items.FirstOrDefault(i => i.NodeId == nodeId);
+        }
+
+        /// <summary>
+        /// Add an item to the board.
+        /// </summary>
+        public void AddItem(Item item)
+        {
+            Items.Add(item);
+        }
+
+        /// <summary>
+        /// Remove an item from the board.
+        /// </summary>
+        public void RemoveItem(Item item)
+        {
+            Items.Remove(item);
+        }
+
+        /// <summary>
+        /// Remove an item by ID from the board.
+        /// </summary>
+        public void RemoveItem(string itemId)
+        {
+            Items.RemoveAll(i => i.Id == itemId);
+        }
+
+        #endregion
+
         #region Actions
 
         /// <summary>
@@ -174,6 +234,8 @@ namespace BizarreChess.Core.Rules
         {
             public bool CaptureBlocked;
             public int? ForcefieldConsumedUnitId;
+            public string DroppedItemId;
+            public int? DroppedItemNodeId;
         }
 
         /// <summary>
@@ -227,6 +289,18 @@ namespace BizarreChess.Core.Rules
                     
                     // No forcefield or already consumed - capture succeeds
                     captured.IsAlive = false;
+
+                    // Handle item drop on death
+                    if (captured.HasDropOnDeathItem)
+                    {
+                        var droppedItem = captured.DropItem(captured.CurrentNodeId);
+                        if (droppedItem != null)
+                        {
+                            Items.Add(droppedItem);
+                            result.DroppedItemId = droppedItem.Id;
+                            result.DroppedItemNodeId = droppedItem.NodeId;
+                        }
+                    }
                 }
             }
 
@@ -320,6 +394,8 @@ namespace BizarreChess.Core.Rules
                 IsRangedCapture = validation.IsRangedCapture,
                 CaptureBlocked = moveResult.CaptureBlocked,
                 ForcefieldConsumedUnitId = moveResult.ForcefieldConsumedUnitId,
+                DroppedItemId = moveResult.DroppedItemId,
+                DroppedItemNodeId = moveResult.DroppedItemNodeId,
                 GameEnded = gameEnded,
                 WinnerId = winnerId,
                 EndReason = endReason,
@@ -351,6 +427,106 @@ namespace BizarreChess.Core.Rules
                     // TODO: Trigger skill-based effects
                     break;
             }
+        }
+
+        #endregion
+
+        #region Item Pickup
+
+        /// <summary>
+        /// Result of executing an item pickup action.
+        /// </summary>
+        public class ItemPickupResult
+        {
+            public bool Success { get; set; }
+            public string Error { get; set; }
+            public int UnitId { get; set; }
+            public string ItemId { get; set; }
+            public int NodeId { get; set; }
+            public int NewTurnNumber { get; set; }
+            public int NewCurrentPlayerId { get; set; }
+
+            public static ItemPickupResult Failed(string error) => new ItemPickupResult { Success = false, Error = error };
+        }
+
+        /// <summary>
+        /// Execute an item pickup action. Unit must be on the same tile as the item.
+        /// This action ends the unit's turn.
+        /// </summary>
+        public ItemPickupResult TryExecuteItemPickup(int unitId, int requestingPlayerId)
+        {
+            // Validate it's this player's turn
+            if (requestingPlayerId != CurrentPlayerId)
+            {
+                return ItemPickupResult.Failed("Not your turn");
+            }
+
+            // Get unit
+            var unit = GetUnit(unitId);
+            if (unit == null)
+            {
+                return ItemPickupResult.Failed("Unit not found");
+            }
+
+            // Validate unit ownership
+            if (unit.OwnerId != requestingPlayerId)
+            {
+                return ItemPickupResult.Failed("Not your unit");
+            }
+
+            // Check if unit can act
+            if (!unit.CanAct)
+            {
+                return ItemPickupResult.Failed("Unit has already acted this turn");
+            }
+
+            // Check if unit can pick up items
+            if (!unit.CanPickUpItem)
+            {
+                return ItemPickupResult.Failed("Unit already holds an item");
+            }
+
+            // Find item at unit's position
+            var item = GetItemAtNode(unit.CurrentNodeId);
+            if (item == null)
+            {
+                return ItemPickupResult.Failed("No item at this position");
+            }
+
+            // Execute pickup
+            string itemId = item.Id;
+            int nodeId = item.NodeId;
+            
+            RemoveItem(item);
+            unit.PickUpItem(item);
+
+            // Mark unit as having acted
+            unit.HasActedThisTurn = true;
+
+            // Record action
+            ActionHistory.Add(new GameAction
+            {
+                Type = ActionType.PickupItem,
+                UnitId = unitId,
+                FromNode = nodeId,
+                ToNode = nodeId,
+                AbilityId = itemId,
+                TurnNumber = TurnNumber,
+                PlayerId = CurrentPlayerId
+            });
+
+            // End turn
+            EndTurn();
+
+            return new ItemPickupResult
+            {
+                Success = true,
+                UnitId = unitId,
+                ItemId = itemId,
+                NodeId = nodeId,
+                NewTurnNumber = TurnNumber,
+                NewCurrentPlayerId = CurrentPlayerId
+            };
         }
 
         #endregion
@@ -502,7 +678,8 @@ namespace BizarreChess.Core.Rules
         CaptureBlocked, // Capture was blocked by Forcefield
         Ability,
         Spawn,
-        EndTurn
+        EndTurn,
+        PickupItem // Unit picked up an item
     }
 
     #endregion

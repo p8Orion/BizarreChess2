@@ -344,6 +344,14 @@ namespace BizarreChess.Presentation
 
             if (Physics.Raycast(ray, out RaycastHit hit, 100f, _interactableLayers))
             {
+                // Check if we hit an item (check first since items are small and need priority)
+                var item = hit.collider.GetComponent<ItemRenderer>();
+                if (item != null)
+                {
+                    item.OnClicked?.Invoke();
+                    return;
+                }
+
                 // Check if we hit a tile
                 var tile = hit.collider.GetComponent<TileRenderer>();
                 if (tile != null)

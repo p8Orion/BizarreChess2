@@ -4,6 +4,7 @@ using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Rules;
 using BizarreChess.Core.Factories;
+using BizarreChess.Core.Items;
 using BizarreChess.Networking;
 using BizarreChess.Persistence;
 using BizarreChess.Presentation;
@@ -46,6 +47,18 @@ namespace BizarreChess
                 {
                     container = new GameObject("UnitsContainer");
                     _unitsContainer = container.transform;
+                }
+            }
+
+            if (_itemsContainer == null)
+            {
+                var container = GameObject.Find("ItemsContainer");
+                if (container != null)
+                    _itemsContainer = container.transform;
+                else
+                {
+                    container = new GameObject("ItemsContainer");
+                    _itemsContainer = container.transform;
                 }
             }
 
@@ -104,6 +117,8 @@ namespace BizarreChess
 
         // Rendering
         private Dictionary<int, UnitRendererType> _unitRenderers = new Dictionary<int, UnitRendererType>();
+        private Dictionary<string, ItemRenderer> _itemRenderers = new Dictionary<string, ItemRenderer>();
+        private Transform _itemsContainer;
 
         // Selection
         private int? _selectedUnitId;
@@ -201,13 +216,17 @@ namespace BizarreChess
             _gameState.Initialize(setup.Board, playerSetups);
             Debug.Log($"[GameManager] Game state has {_gameState.Units.Count} units");
 
+            // Add items from setup
+            AddItemsFromSetup(setup.Items);
+
             // Render
             if (_boardRenderer != null)
             {
                 RenderBoard();
                 RenderUnits();
+                RenderItems();
                 _boardRenderer.OnTileClicked += OnTileClicked;
-                Debug.Log("[GameManager] Board and units rendered!");
+                Debug.Log("[GameManager] Board, units, and items rendered!");
             }
             else
             {
@@ -265,6 +284,10 @@ namespace BizarreChess
             _networkedGameState.OnDragStarted += OnRemoteDragStarted;
             _networkedGameState.OnDragUpdated += OnRemoteDragUpdate;
             _networkedGameState.OnDragEnded += OnRemoteDragEnded;
+            
+            // Item events
+            _networkedGameState.OnItemPickedUp += OnNetworkItemPickedUp;
+            _networkedGameState.OnItemDropped += OnNetworkItemDropped;
         }
 
         private System.Collections.IEnumerator WaitForNetworkedGameState()
@@ -362,6 +385,38 @@ namespace BizarreChess
             Debug.Log(winnerId == localPlayerId ? "You won!" : (winnerId == -1 ? "Draw!" : "You lost!"));
         }
 
+        private void OnNetworkItemPickedUp(int unitId, string itemId, int nodeId)
+        {
+            Debug.Log($"[GameManager] Network item picked up: Unit {unitId} picked up {itemId}");
+            
+            // Visual feedback
+            DestroyItemRenderer(itemId, animate: true);
+
+            // Update unit visual (forcefield will be auto-detected)
+            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            {
+                var unit = _gameState?.GetUnit(unitId);
+                if (unit != null)
+                {
+                    renderer.UpdateState(unit);
+                }
+            }
+
+            ClearSelection();
+        }
+
+        private void OnNetworkItemDropped(string itemId, int nodeId)
+        {
+            Debug.Log($"[GameManager] Network item dropped: {itemId} at node {nodeId}");
+            
+            // Get the item from game state and spawn renderer
+            var item = _gameState?.GetItem(itemId);
+            if (item != null)
+            {
+                SpawnDroppedItemRenderer(item);
+            }
+        }
+
         private bool _networkGameInitialized = false;
         
         private void OnNetworkGameStarted()
@@ -386,6 +441,9 @@ namespace BizarreChess
                 _moveValidator = new MoveValidator(_boardGraph, _unitDefinitions);
             }
             
+            // Get game state reference for items
+            _gameState = _networkedGameState.GetGameState();
+
             // Render
             if (_boardRenderer != null && _boardGraph != null)
             {
@@ -399,10 +457,13 @@ namespace BizarreChess
                 {
                     SpawnUnitRenderer(unit);
                 }
+
+                // Render items
+                RenderItems();
                 
                 _boardRenderer.OnTileClicked -= OnTileClicked; // Unsub first to prevent doubles
                 _boardRenderer.OnTileClicked += OnTileClicked;
-                Debug.Log($"[GameManager] Rendered {_unitRenderers.Count} units!");
+                Debug.Log($"[GameManager] Rendered {_unitRenderers.Count} units and {_itemRenderers.Count} items!");
             }
             else
             {
@@ -529,6 +590,100 @@ namespace BizarreChess
             if (_boardGraph == null) return Vector3.zero;
             var pos = _boardGraph.GetNodePosition(nodeId);
             return new Vector3(pos.x * 1.05f, 0, pos.y * 1.05f);
+        }
+
+        #endregion
+
+        #region Item Rendering
+
+        /// <summary>
+        /// Add items from the setup to the game state.
+        /// </summary>
+        private void AddItemsFromSetup(List<Item> items)
+        {
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                // Clone items so each game has independent instances
+                var clonedItem = item.Clone();
+                _gameState.AddItem(clonedItem);
+                Debug.Log($"[GameManager] Added item '{clonedItem.DisplayName}' at node {clonedItem.NodeId}");
+            }
+        }
+
+        /// <summary>
+        /// Render all items on the board.
+        /// </summary>
+        private void RenderItems()
+        {
+            // Clear existing renderers
+            foreach (var renderer in _itemRenderers.Values)
+            {
+                if (renderer != null)
+                    Destroy(renderer.gameObject);
+            }
+            _itemRenderers.Clear();
+
+            // Render all items
+            foreach (var item in _gameState.Items)
+            {
+                SpawnItemRenderer(item);
+            }
+        }
+
+        /// <summary>
+        /// Spawn a renderer for an item.
+        /// </summary>
+        private void SpawnItemRenderer(Item item)
+        {
+            if (_itemRenderers.ContainsKey(item.Id))
+            {
+                Debug.LogWarning($"[GameManager] Item renderer already exists for {item.Id}, skipping");
+                return;
+            }
+
+            var itemGO = new GameObject($"Item_{item.Id}_{item.DisplayName}");
+            itemGO.transform.SetParent(_itemsContainer);
+
+            var renderer = itemGO.AddComponent<ItemRenderer>();
+            var position = GetWorldPosition(item.NodeId);
+            renderer.Initialize(item, position);
+            renderer.OnClicked += () => OnItemClicked(item.Id);
+
+            _itemRenderers[item.Id] = renderer;
+        }
+
+        /// <summary>
+        /// Spawn a renderer for a newly dropped item with animation.
+        /// </summary>
+        private void SpawnDroppedItemRenderer(Item item)
+        {
+            SpawnItemRenderer(item);
+            
+            if (_itemRenderers.TryGetValue(item.Id, out var renderer))
+            {
+                renderer.PlaySpawnAnimation();
+            }
+        }
+
+        /// <summary>
+        /// Remove an item renderer.
+        /// </summary>
+        private void DestroyItemRenderer(string itemId, bool animate = true)
+        {
+            if (_itemRenderers.TryGetValue(itemId, out var renderer))
+            {
+                if (animate)
+                {
+                    renderer.PlayPickupAnimation();
+                }
+                else
+                {
+                    Destroy(renderer.gameObject);
+                }
+                _itemRenderers.Remove(itemId);
+            }
         }
 
         #endregion
@@ -667,6 +822,130 @@ namespace BizarreChess
             }
         }
 
+        private void OnItemClicked(string itemId)
+        {
+            if (_offlineMode)
+            {
+                HandleOfflineItemClick(itemId);
+            }
+            else
+            {
+                HandleNetworkItemClick(itemId);
+            }
+        }
+
+        private void HandleOfflineItemClick(string itemId)
+        {
+            Debug.Log($"[GameManager] Item clicked: {itemId}");
+            
+            var item = _gameState.GetItem(itemId);
+            if (item == null)
+            {
+                Debug.LogWarning($"[GameManager] Item {itemId} not found in game state!");
+                return;
+            }
+
+            Debug.Log($"[GameManager] Item '{item.DisplayName}' is at node {item.NodeId}");
+
+            // Check if we have a unit selected that can pick up this item
+            if (_selectedUnitId.HasValue)
+            {
+                var unit = _gameState.GetUnit(_selectedUnitId.Value);
+                Debug.Log($"[GameManager] Selected unit {_selectedUnitId.Value} at node {unit?.CurrentNodeId}, item at {item.NodeId}");
+                Debug.Log($"[GameManager] Unit checks: Owner={unit?.OwnerId}, CurrentPlayer={_gameState.CurrentPlayerId}, CanPickUp={unit?.CanPickUpItem}, CanAct={unit?.CanAct}");
+                
+                if (unit != null && 
+                    unit.OwnerId == _gameState.CurrentPlayerId &&
+                    unit.CurrentNodeId == item.NodeId &&
+                    unit.CanPickUpItem &&
+                    unit.CanAct)
+                {
+                    // Execute pickup
+                    Debug.Log("[GameManager] All conditions met, executing pickup!");
+                    ExecuteItemPickup(_selectedUnitId.Value);
+                    return;
+                }
+                else
+                {
+                    Debug.Log("[GameManager] Unit cannot pick up item - conditions not met");
+                }
+            }
+            else
+            {
+                Debug.Log("[GameManager] No unit selected");
+            }
+
+            // If clicking on item without valid unit selected, check if there's our unit on that tile
+            var unitAtNode = _gameState.GetUnitAtNode(item.NodeId);
+            Debug.Log($"[GameManager] Unit at item's node: {unitAtNode?.UnitId} (owner: {unitAtNode?.OwnerId})");
+            if (unitAtNode != null && 
+                unitAtNode.OwnerId == _gameState.CurrentPlayerId &&
+                unitAtNode.CanPickUpItem &&
+                unitAtNode.CanAct)
+            {
+                // Select the unit first to show it can pick up the item
+                SelectUnit(unitAtNode.UnitId);
+            }
+        }
+
+        private void HandleNetworkItemClick(string itemId)
+        {
+            if (!_networkedGameState.IsMyTurn())
+            {
+                Debug.Log("Not your turn!");
+                return;
+            }
+
+            // Similar to offline but use network RPC
+            var units = _networkedGameState.GetAllUnits();
+            
+            if (_selectedUnitId.HasValue)
+            {
+                var unit = units.Find(u => u.UnitId == _selectedUnitId.Value);
+                var item = _gameState.GetItem(itemId);
+                
+                if (unit != null && item != null &&
+                    unit.OwnerId == _networkedGameState.LocalPlayerId &&
+                    unit.CurrentNodeId == item.NodeId &&
+                    unit.CanPickUpItem &&
+                    unit.CanAct)
+                {
+                    _networkedGameState.RequestItemPickupServerRpc(_selectedUnitId.Value);
+                    ClearSelection();
+                    return;
+                }
+            }
+        }
+
+        private void ExecuteItemPickup(int unitId)
+        {
+            var result = _gameState.TryExecuteItemPickup(unitId, _gameState.CurrentPlayerId);
+            
+            if (!result.Success)
+            {
+                Debug.LogWarning($"[GameManager] Item pickup failed: {result.Error}");
+                return;
+            }
+
+            Debug.Log($"[GameManager] Unit {unitId} picked up item {result.ItemId}");
+
+            // Visual feedback
+            DestroyItemRenderer(result.ItemId, animate: true);
+
+            // Update unit visual (forcefield will be auto-detected by UnitRenderer.UpdateState)
+            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            {
+                var unit = _gameState.GetUnit(unitId);
+                if (unit != null)
+                {
+                    renderer.UpdateState(unit);
+                }
+            }
+
+            ClearSelection();
+            Debug.Log($"Turn {result.NewTurnNumber}, Player {result.NewCurrentPlayerId}'s turn");
+        }
+
         private void SelectUnit(int unitId)
         {
             ClearSelection();
@@ -717,6 +996,9 @@ namespace BizarreChess
             // Mark capturable enemy units
             MarkCapturableUnits(ownerId);
 
+            // Highlight pickable items
+            HighlightPickableItems(unitId);
+
             OnUnitSelected?.Invoke(unitId);
         }
 
@@ -733,12 +1015,48 @@ namespace BizarreChess
             // Clear capturable unit highlights
             ClearCapturableMarks();
 
+            // Clear item highlights
+            ClearItemHighlights();
+
             _selectedUnitId = null;
             _validMoves.Clear();
             _selectedMoves = null;
             _boardRenderer?.ClearHighlights();
 
             OnSelectionCleared?.Invoke();
+        }
+
+        private void HighlightPickableItems(int unitId)
+        {
+            ClearItemHighlights();
+
+            UnitState unit = null;
+            if (_offlineMode)
+            {
+                unit = _gameState.GetUnit(unitId);
+            }
+            else
+            {
+                var units = _networkedGameState.GetAllUnits();
+                unit = units.Find(u => u.UnitId == unitId);
+            }
+
+            if (unit == null || !unit.CanPickUpItem || !unit.CanAct) return;
+
+            // Find item at unit's position
+            var item = _gameState.GetItemAtNode(unit.CurrentNodeId);
+            if (item != null && _itemRenderers.TryGetValue(item.Id, out var renderer))
+            {
+                renderer.SetHighlighted(true);
+            }
+        }
+
+        private void ClearItemHighlights()
+        {
+            foreach (var renderer in _itemRenderers.Values)
+            {
+                renderer?.SetHighlighted(false);
+            }
         }
 
         private void MarkCapturableUnits(int attackerOwnerId)
@@ -1148,6 +1466,17 @@ namespace BizarreChess
                     if (_unitRenderers.TryGetValue(result.CapturedUnitId.Value, out var capturedRenderer))
                     {
                         capturedRenderer.PlayDeathAnimation();
+                    }
+                }
+
+                // Handle item drop from captured unit
+                if (!string.IsNullOrEmpty(result.DroppedItemId) && result.DroppedItemNodeId.HasValue)
+                {
+                    var droppedItem = _gameState.GetItem(result.DroppedItemId);
+                    if (droppedItem != null)
+                    {
+                        SpawnDroppedItemRenderer(droppedItem);
+                        Debug.Log($"[GameManager] Item '{droppedItem.DisplayName}' dropped at node {result.DroppedItemNodeId.Value}");
                     }
                 }
 

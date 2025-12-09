@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BizarreChess.Core.Board;
 using BizarreChess.Core.Skills;
+using BizarreChess.Core.Items;
 
 namespace BizarreChess.Core.Units
 {
@@ -31,6 +32,10 @@ namespace BizarreChess.Core.Units
 
         // Status
         public bool IsAlive;
+
+        // Item
+        [NonSerialized]
+        public Item HeldItem;
 
         public UnitState()
         {
@@ -204,6 +209,53 @@ namespace BizarreChess.Core.Units
         {
             Skills?.RemoveAll(s => s.Id == skillId);
         }
+
+        #endregion
+
+        #region Items
+
+        /// <summary>
+        /// Check if this unit can pick up an item (must not already hold one).
+        /// </summary>
+        public bool CanPickUpItem => HeldItem == null;
+
+        /// <summary>
+        /// Pick up an item and apply its effect.
+        /// </summary>
+        /// <param name="item">The item to pick up.</param>
+        /// <returns>True if successful, false if already holding an item.</returns>
+        public bool PickUpItem(Item item)
+        {
+            if (HeldItem != null)
+                return false;
+
+            HeldItem = item;
+            item.NodeId = -1; // Item is no longer on the board
+            item.OnPick(this);
+            return true;
+        }
+
+        /// <summary>
+        /// Drop the currently held item.
+        /// </summary>
+        /// <param name="dropNodeId">The node where the item should be placed.</param>
+        /// <returns>The dropped item, or null if not holding any.</returns>
+        public Item DropItem(int dropNodeId)
+        {
+            if (HeldItem == null)
+                return null;
+
+            var item = HeldItem;
+            item.OnDrop(this);
+            item.NodeId = dropNodeId;
+            HeldItem = null;
+            return item;
+        }
+
+        /// <summary>
+        /// Check if unit has an item that should drop on death.
+        /// </summary>
+        public bool HasDropOnDeathItem => HeldItem != null && HeldItem.DropOnDeath;
 
         #endregion
     }

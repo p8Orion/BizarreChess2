@@ -3,6 +3,7 @@ using TMPro;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Player;
 using BizarreChess.Core.Skills;
+using BizarreChess.Core.Items;
 
 namespace BizarreChess.Presentation.UnitRenderer
 {
@@ -76,6 +77,13 @@ namespace BizarreChess.Presentation.UnitRenderer
         private Material _forcefieldMaterial;
         private static Shader _forcefieldShader;
 
+        // Held item state
+        private bool _hasHeldItem;
+        private GameObject _heldItemObject;
+        private MeshRenderer _heldItemRenderer;
+        private Material _heldItemMaterial;
+        private Item _displayedItem;
+
         public void Initialize(UnitState state, UnitDefinition definition, Vector3 position)
         {
             UnitId = state.UnitId;
@@ -105,6 +113,7 @@ namespace BizarreChess.Presentation.UnitRenderer
 
             // Check for active forcefield skill
             CheckForcefieldStatus();
+            CheckHeldItemStatus();
 
             UpdateVisuals();
         }
@@ -196,10 +205,108 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
         }
 
+        #region Held Item Visual
+
+        /// <summary>
+        /// Check if the unit is holding an item and update the visual.
+        /// </summary>
+        private void CheckHeldItemStatus()
+        {
+            var heldItem = _currentState?.HeldItem;
+            bool shouldShowItem = heldItem != null;
+
+            if (shouldShowItem && (!_hasHeldItem || _displayedItem != heldItem))
+            {
+                // Create or update held item visual
+                DestroyHeldItemObject();
+                _displayedItem = heldItem;
+                CreateHeldItemObject(heldItem);
+            }
+            else if (!shouldShowItem && _hasHeldItem)
+            {
+                // Remove held item visual
+                DestroyHeldItemObject();
+                _displayedItem = null;
+            }
+
+            _hasHeldItem = shouldShowItem;
+        }
+
+        /// <summary>
+        /// Create a small visual representation of the held item next to the unit.
+        /// </summary>
+        private void CreateHeldItemObject(Item item)
+        {
+            if (_heldItemObject != null) return;
+
+            // Create primitive based on item shape
+            PrimitiveType primitiveType = item.Shape switch
+            {
+                ItemShape.Cube => PrimitiveType.Cube,
+                ItemShape.Capsule => PrimitiveType.Capsule,
+                ItemShape.Cylinder => PrimitiveType.Cylinder,
+                _ => PrimitiveType.Sphere
+            };
+
+            _heldItemObject = GameObject.CreatePrimitive(primitiveType);
+            _heldItemObject.name = $"HeldItem_{item.Id}";
+            _heldItemObject.transform.SetParent(transform);
+
+            // Position to the side and slightly above the unit
+            _heldItemObject.transform.localPosition = new Vector3(0.4f, 0.8f, 0f);
+            _heldItemObject.transform.localScale = Vector3.one * 0.12f;
+
+            // Remove collider (we don't want to click the held item)
+            var collider = _heldItemObject.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
+            }
+
+            // Set up material with item color
+            _heldItemRenderer = _heldItemObject.GetComponent<MeshRenderer>();
+            if (_heldItemRenderer != null)
+            {
+                _heldItemMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                _heldItemMaterial.color = item.ItemColor;
+                _heldItemMaterial.SetFloat("_Smoothness", 0.8f);
+                
+                // Add emission for visibility
+                _heldItemMaterial.EnableKeyword("_EMISSION");
+                _heldItemMaterial.SetColor("_EmissionColor", item.ItemColor * 0.3f);
+                
+                _heldItemRenderer.material = _heldItemMaterial;
+            }
+        }
+
+        /// <summary>
+        /// Destroy the held item visual.
+        /// </summary>
+        private void DestroyHeldItemObject()
+        {
+            if (_heldItemObject != null)
+            {
+                Destroy(_heldItemObject);
+                _heldItemObject = null;
+                _heldItemRenderer = null;
+            }
+
+            if (_heldItemMaterial != null)
+            {
+                Destroy(_heldItemMaterial);
+                _heldItemMaterial = null;
+            }
+        }
+
+        #endregion
+
+        #region State Update
+
         public void UpdateState(UnitState state)
         {
             _currentState = state;
             CheckForcefieldStatus();
+            CheckHeldItemStatus();
             UpdateVisuals();
         }
 
@@ -377,7 +484,19 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
             
             // Forcefield handled by shader animation, no per-frame update needed
+
+            // Animate held item (rotation and subtle bobbing)
+            if (_heldItemObject != null)
+            {
+                _heldItemObject.transform.Rotate(Vector3.up, 90f * Time.deltaTime);
+                float bob = Mathf.Sin(Time.time * 3f) * 0.02f;
+                var localPos = _heldItemObject.transform.localPosition;
+                localPos.y = 0.8f + bob;
+                _heldItemObject.transform.localPosition = localPos;
+            }
         }
+
+        #endregion
         
         #region Drag and Drop
         

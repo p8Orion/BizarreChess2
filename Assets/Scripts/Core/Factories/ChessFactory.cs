@@ -4,6 +4,7 @@ using BizarreChess.Core.Board;
 using BizarreChess.Core.Units;
 using BizarreChess.Core.Armies;
 using BizarreChess.Core.Player;
+using BizarreChess.Core.Items;
 
 namespace BizarreChess.Core.Factories
 {
@@ -42,6 +43,9 @@ namespace BizarreChess.Core.Factories
             var classicArmy = ArmyFactory.CreateClassicArmy();
             var camelArmy = ArmyFactory.Get("camel_army");  // TODO: Create a camel army
 
+            // Create initial items
+            var items = CreateDefaultItems();
+
             var setup = new ChessSetup
             {   
                 Board = board,
@@ -49,7 +53,8 @@ namespace BizarreChess.Core.Factories
                 PlayerColorSchemes = new List<PlayerColorScheme> { 
                     new PlayerColorScheme(new Color(0f, 0.75f, 0), new Color(0f, 0.75f, 0.75f), "Wood4"), 
                     new PlayerColorScheme(new Color(0.75f, 0, 0), new Color(0.75f, 0.75f, 0f), "Wood5"),   
-                }
+                },
+                Items = items
             };
             
             setup.ApplyColors();
@@ -215,6 +220,30 @@ namespace BizarreChess.Core.Factories
         }
 
         #endregion
+
+        #region Items
+
+        /// <summary>
+        /// Create default items for a standard game.
+        /// </summary>
+        public static List<Item> CreateDefaultItems()
+        {
+            var items = new List<Item>();
+
+            // ForceField Generator on d4 (node 27)
+            var ffg1 = new ForceFieldGeneratorItem();
+            ffg1.NodeId = 27; // d4
+            items.Add(ffg1);
+
+            // ForceField Generator on e5 (node 36)
+            var ffg2 = new ForceFieldGeneratorItem();
+            ffg2.NodeId = 36; // e5
+            items.Add(ffg2);
+
+            return items;
+        }
+
+        #endregion
     }
 
     /// <summary>
@@ -238,6 +267,11 @@ namespace BizarreChess.Core.Factories
         /// Board skin (tile textures/colors). If null, uses default.
         /// </summary>
         public BoardSkin BoardSkin;
+
+        /// <summary>
+        /// Initial items placed on the board.
+        /// </summary>
+        public List<Item> Items;
 
         /// <summary>
         /// Get all piece definitions used in this setup (from PiecesFactory cache).

@@ -6,6 +6,7 @@ using BizarreChess.Core.Units;
 using BizarreChess.Core.Rules;
 using BizarreChess.Core.Armies;
 using BizarreChess.Core.Factories;
+using BizarreChess.Core.Items;
 
 namespace BizarreChess.Networking
 {
@@ -40,6 +41,10 @@ namespace BizarreChess.Networking
         public System.Action OnTurnChanged;
         public System.Action<int> OnGameEnded; // winnerId (-1 for draw)
         public System.Action OnGameStarted; // Called when game begins
+        
+        // Item events
+        public System.Action<int, string, int> OnItemPickedUp; // unitId, itemId, nodeId
+        public System.Action<string, int> OnItemDropped; // itemId, nodeId
 
         // Player mapping (clientId -> playerId)
         private Dictionary<ulong, int> _clientToPlayer = new Dictionary<ulong, int>();
@@ -224,6 +229,9 @@ namespace BizarreChess.Networking
             _gameState = new GameState();
             _gameState.Initialize(_chessSetup.Board, playerSetups);
 
+            // Add items from setup
+            AddItemsFromSetup(_chessSetup.Items);
+
             // Update network variables
             Phase.Value = GamePhaseNetwork.Playing;
             CurrentTurn.Value = _gameState.TurnNumber;
@@ -231,6 +239,21 @@ namespace BizarreChess.Networking
 
             // Send initial state to all clients
             SyncInitialStateClientRpc();
+        }
+
+        /// <summary>
+        /// Add items from the chess setup to the game state.
+        /// </summary>
+        private void AddItemsFromSetup(List<Item> items)
+        {
+            if (items == null || _gameState == null) return;
+
+            foreach (var item in items)
+            {
+                var clonedItem = item.Clone();
+                _gameState.AddItem(clonedItem);
+                Debug.Log($"[NetworkedGameState] Added item '{clonedItem.DisplayName}' at node {clonedItem.NodeId}");
+            }
         }
 
         [ClientRpc]
@@ -258,6 +281,9 @@ namespace BizarreChess.Networking
                 _gameState.Initialize(_chessSetup.Board, playerSetups);
                 _boardGraph = new BoardGraph(_chessSetup.Board);
                 _moveValidator = new MoveValidator(_boardGraph, _chessSetup.Pieces);
+
+                // Add items from setup (same as server)
+                AddItemsFromSetup(_chessSetup.Items);
             }
             
             OnGameStarted?.Invoke();
@@ -306,6 +332,12 @@ namespace BizarreChess.Networking
                 if (result.IsCapture && result.CapturedUnitId.HasValue)
                 {
                     BroadcastCaptureClientRpc(result.CapturedUnitId.Value);
+                    
+                    // Broadcast item drop if captured unit had an item
+                    if (!string.IsNullOrEmpty(result.DroppedItemId) && result.DroppedItemNodeId.HasValue)
+                    {
+                        BroadcastItemDroppedClientRpc(result.DroppedItemId, result.DroppedItemNodeId.Value);
+                    }
                 }
             }
 
@@ -375,6 +407,41 @@ namespace BizarreChess.Networking
 
             Phase.Value = GamePhaseNetwork.Ended;
             WinnerId.Value = winnerId;
+        }
+
+        /// <summary>
+        /// Client requests to pick up an item.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void RequestItemPickupServerRpc(int unitId, ServerRpcParams rpcParams = default)
+        {
+            ulong clientId = rpcParams.Receive.SenderClientId;
+            
+            if (!_clientToPlayer.TryGetValue(clientId, out int playerId))
+            {
+                Debug.LogWarning($"[NetworkedGameState] Unknown client {clientId} tried to pick up item");
+                return;
+            }
+
+            // Use centralized pickup execution
+            var result = _gameState.TryExecuteItemPickup(unitId, playerId);
+            
+            if (!result.Success)
+            {
+                SendErrorToClient(result.Error, clientId);
+                return;
+            }
+
+            Debug.Log($"[NetworkedGameState] Item pickup executed: Unit {unitId} picked up {result.ItemId}");
+
+            // Broadcast to all clients
+            BroadcastItemPickedUpClientRpc(unitId, result.ItemId, result.NodeId);
+
+            // Update network variables
+            CurrentTurn.Value = result.NewTurnNumber;
+            CurrentPlayerId.Value = result.NewCurrentPlayerId;
+            
+            BroadcastTurnEndClientRpc();
         }
 
         #endregion
@@ -542,6 +609,36 @@ namespace BizarreChess.Networking
             OnTurnChanged?.Invoke();
         }
 
+        [ClientRpc]
+        private void BroadcastItemPickedUpClientRpc(int unitId, string itemId, int nodeId)
+        {
+            Debug.Log($"[NetworkedGameState] Item picked up: Unit {unitId} picked up {itemId} at node {nodeId}");
+            
+            // Update local game state on clients (server already updated)
+            if (!IsServer && _gameState != null)
+            {
+                var unit = _gameState.GetUnit(unitId);
+                var item = _gameState.GetItem(itemId);
+                if (unit != null && item != null)
+                {
+                    _gameState.RemoveItem(item);
+                    unit.PickUpItem(item);
+                    unit.HasActedThisTurn = true;
+                }
+            }
+            
+            OnItemPickedUp?.Invoke(unitId, itemId, nodeId);
+        }
+
+        [ClientRpc]
+        private void BroadcastItemDroppedClientRpc(string itemId, int nodeId)
+        {
+            Debug.Log($"[NetworkedGameState] Item dropped: {itemId} at node {nodeId}");
+            
+            // Note: Local game state is updated in move execution, this is just for visual sync
+            OnItemDropped?.Invoke(itemId, nodeId);
+        }
+
         private void SendErrorToClient(string error, ulong clientId)
         {
             NotifyErrorClientRpc(error, new ClientRpcParams
@@ -616,6 +713,14 @@ namespace BizarreChess.Networking
         public Dictionary<string, UnitDefinition> GetPieces()
         {
             return _chessSetup?.Pieces;
+        }
+
+        /// <summary>
+        /// Get the game state (for item rendering and queries).
+        /// </summary>
+        public GameState GetGameState()
+        {
+            return _gameState;
         }
 
         #endregion
