@@ -91,6 +91,7 @@ namespace BizarreChess.Core.Units
     {
         public MovementType Type;
         public int MaxDistance;          // -1 for unlimited (queen, rook, bishop)
+        public int MinDistance = 1;      // Minimum distance for sliding pieces (default 1)
         public bool CanJump;             // Leaper pieces can jump over others
         public bool CaptureOnly;         // Pawn diagonal capture
         public bool MoveOnly;            // Pawn forward (can't capture going forward)
@@ -104,10 +105,11 @@ namespace BizarreChess.Core.Units
 
         public MovementPattern() { }
 
-        public MovementPattern(MovementType type, int maxDistance = -1)
+        public MovementPattern(MovementType type, int maxDistance = -1, int minDistance = 1)
         {
             Type = type;
             MaxDistance = maxDistance;
+            MinDistance = minDistance;
             CanJump = false;
             CaptureOnly = false;
             MoveOnly = false;
@@ -193,6 +195,7 @@ namespace BizarreChess.Core.Units
             Func<int, bool> isOccupied, Func<int, bool> isEnemy)
         {
             var coords = board.Definition.GetCoordinates(fromNode);
+            int minDist = MinDistance;
 
             for (int i = 1; i <= maxDist; i++)
             {
@@ -209,8 +212,8 @@ namespace BizarreChess.Core.Units
 
                 if (isOccupied(nodeId))
                 {
-                    // Can capture enemy
-                    if (isEnemy(nodeId) && !MoveOnly)
+                    // Can capture enemy (only if at or beyond MinDistance)
+                    if (i >= minDist && isEnemy(nodeId) && !MoveOnly)
                     {
                         result.Add(nodeId);
                     }
@@ -224,7 +227,8 @@ namespace BizarreChess.Core.Units
                     continue;
                 }
 
-                if (!CaptureOnly)
+                // Only add if at or beyond MinDistance
+                if (i >= minDist && !CaptureOnly)
                 {
                     result.Add(nodeId);
                 }
@@ -459,6 +463,7 @@ namespace BizarreChess.Core.Units
             Func<int, bool> isOccupied, Func<int, bool> isEnemy)
         {
             var coords = board.Definition.GetCoordinates(fromNode);
+            int minDist = MinDistance;
 
             for (int i = 1; i <= maxDist; i++)
             {
@@ -475,10 +480,12 @@ namespace BizarreChess.Core.Units
 
                 if (isOccupied(nodeId))
                 {
-                    // Occupied by enemy - can we capture?
-                    if (isEnemy(nodeId) && !MoveOnly)
+                    // Occupied by enemy - can we capture? (only if at or beyond MinDistance)
+                    if (i >= minDist && isEnemy(nodeId) && !MoveOnly)
                     {
-                        if (CaptureOnly)
+                        if (RangedCapture)
+                            result.RangedCapture.Add(nodeId);
+                        else if (CaptureOnly)
                             result.CaptureOnly.Add(nodeId);
                         else
                             result.Both.Add(nodeId); // Normal piece can both move and capture here
@@ -489,8 +496,13 @@ namespace BizarreChess.Core.Units
                     continue;
                 }
 
-                // Empty square
-                if (CaptureOnly)
+                // Empty square - only add if at or beyond MinDistance
+                if (i < minDist)
+                    continue;
+
+                if (RangedCapture)
+                    result.RangedCapture.Add(nodeId); // Ranged attack zone
+                else if (CaptureOnly)
                     result.CaptureOnly.Add(nodeId); // Can capture here if enemy arrives
                 else if (MoveOnly)
                     result.MoveOnly.Add(nodeId);

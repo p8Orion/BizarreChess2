@@ -36,7 +36,7 @@ namespace BizarreChess.Core.Factories
         public static Dictionary<string, UnitDefinition> GetAll()
         {
             // Ensure all pieces are cached
-            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Pawn", "Lancer", "Defender" };
+            var allNames = new[] { "King", "Queen", "Rook", "Bishop", "Knight", "Camel", "Crossbowman", "Cannon", "Pawn", "Lancer", "Defender" };
             foreach (var name in allNames)
                 Get(name);
 
@@ -65,6 +65,7 @@ namespace BizarreChess.Core.Factories
                 "Knight" => CreateKnightDefinition(),
                 "Camel" => CreateCamelDefinition(),
                 "Crossbowman" => CreateCrossbowmanDefinition(),
+                "Cannon" => CreateCannonDefinition(),
                 "Pawn" => CreatePawnDefinition(),
                 "Lancer" => CreateLancerDefinition(),
                 "Defender" => CreateDefenderDefinition(),
@@ -239,6 +240,32 @@ namespace BizarreChess.Core.Factories
             ApplyPieceTextures(crossbowman, "Crossbowman");
 
             return crossbowman;
+        }
+
+        private static UnitDefinition CreateCannonDefinition()
+        {
+            var cannon = ScriptableObject.CreateInstance<UnitDefinition>();
+            cannon.UnitId = "Cannon";
+            cannon.DisplayName = "Cannon";
+            cannon.PieceType = PieceType.Custom;
+            cannon.BaseCost = 5;
+
+            cannon.MovementPatterns = new List<MovementPattern>
+            {
+                // Moves like a rook (orthogonal, unlimited)
+                new MovementPattern(MovementType.Adjacent, 1) { MoveOnly = true },
+                // Fires orthogonally at range 2-4, doesn't move when capturing
+                new MovementPattern(MovementType.Orthogonal, 4) { MinDistance = 2, CaptureOnly = true, RangedCapture = true }
+            };
+
+            // Use Rook unicode as fallback
+            cannon.UnicodeWhite = ChessUnicode.WhiteRook;
+            cannon.UnicodeBlack = ChessUnicode.BlackRook;
+
+            // 3D Rendering
+            ApplyPieceTextures(cannon, "Cannon");
+
+            return cannon;
         }
 
         private static UnitDefinition CreatePawnDefinition()

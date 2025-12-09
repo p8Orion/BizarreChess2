@@ -86,6 +86,7 @@ namespace BizarreChess.Core.Units
                 {
                     Type = pattern.Type,
                     MaxDistance = pattern.MaxDistance,
+                    MinDistance = pattern.MinDistance,
                     CanJump = pattern.CanJump,
                     CaptureOnly = pattern.CaptureOnly,
                     MoveOnly = pattern.MoveOnly,

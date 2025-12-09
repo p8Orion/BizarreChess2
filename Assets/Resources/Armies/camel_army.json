@@ -4,7 +4,7 @@
   "description": "Army with Camels instead of Knights",
   "requiresKing": true,
   "pieces": [
-    { "piece": "Rook", "x": 0, "y": 0 },
+    { "piece": "Cannon", "x": 0, "y": 0 },
     { "piece": "Camel", "x": 1, "y": 0 },
     { "piece": "Crossbowman", "x": 2, "y": 0 },
     { "piece": "Queen", "x": 3, "y": 0 },
@@ -19,7 +19,7 @@
     { "piece": "Lancer", "x": 4, "y": 1 },
     { "piece": "Pawn", "x": 5, "y": 1 },
     { "piece": "Lancer", "x": 6, "y": 1 },
-    { "piece": "Pawn", "x": 7, "y": 1 }
+    { "piece": "Cannon", "x": 7, "y": 1 }
   ]
 }
 
