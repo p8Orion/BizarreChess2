@@ -474,9 +474,19 @@ namespace BizarreChess.Core.Units
                     break;
 
                 int nodeId = board.Definition.GetNodeId(x, y);
+                var nodeState = board.State.GetNode(nodeId);
 
-                if (!board.IsPassable(nodeId))
+                // Impassable walls always block
+                if (nodeState.IsImpassable)
                     break;
+
+                // Non-passable tiles (abyss, destroyed): ranged attacks fly over, normal movement stops
+                if (!board.IsPassable(nodeId))
+                {
+                    if (RangedCapture)
+                        continue; // Ranged can fly over abyss
+                    break;
+                }
 
                 if (isOccupied(nodeId))
                 {

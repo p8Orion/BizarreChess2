@@ -253,7 +253,7 @@ namespace BizarreChess.Core.Factories
             cannon.MovementPatterns = new List<MovementPattern>
             {
                 // Moves like a rook (orthogonal, unlimited)
-                new MovementPattern(MovementType.Adjacent, 1) { MoveOnly = true },
+                new MovementPattern(MovementType.Orthogonal, 1) { MoveOnly = true },
                 // Fires orthogonally at range 2-4, doesn't move when capturing
                 new MovementPattern(MovementType.Orthogonal, 4) { MinDistance = 2, CaptureOnly = true, RangedCapture = true }
             };
