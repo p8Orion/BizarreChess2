@@ -168,20 +168,74 @@ namespace BizarreChess.Presentation.UnitRenderer
             
             // Setup material
             _forcefieldRenderer = _forcefieldObject.GetComponent<MeshRenderer>();
-            if (_forcefieldShader != null)
+            
+            if (_forcefieldShader != null && _forcefieldShader.isSupported)
             {
                 _forcefieldMaterial = new Material(_forcefieldShader);
-                _forcefieldMaterial.SetColor("_Color", new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.35f));
+                
+                // Configure the custom forcefield shader with proper parameters
+                // Color with good alpha for visibility
+                Color shaderColor = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.5f);
+                _forcefieldMaterial.SetColor("_Color", shaderColor);
+                
+                // Fresnel - makes edges brighter
+                _forcefieldMaterial.SetFloat("_FresnelPower", 2.0f);
+                
+                // Noise - cloud effect
+                _forcefieldMaterial.SetFloat("_NoiseScale", 8.0f);
+                _forcefieldMaterial.SetFloat("_NoiseSpeed", 0.5f);
+                
+                // Pulse - breathing animation
+                _forcefieldMaterial.SetFloat("_PulseIntensity", 0.8f);
+                
+                // Edge glow
+                _forcefieldMaterial.SetFloat("_EdgeGlow", 1.2f);
+                
+                // Ensure proper render queue for transparency
+                _forcefieldMaterial.renderQueue = 3000;
+                
                 _forcefieldRenderer.material = _forcefieldMaterial;
             }
             else
             {
-                // Fallback to standard transparent
-                _forcefieldMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                _forcefieldMaterial.SetFloat("_Surface", 1); // Transparent
-                _forcefieldMaterial.SetFloat("_Blend", 0); // Alpha
-                _forcefieldMaterial.SetColor("_BaseColor", new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.3f));
-                _forcefieldMaterial.SetFloat("_Smoothness", 0.9f);
+                // Fallback: create a simple transparent glowing sphere
+                CreateFallbackForcefieldMaterial();
+            }
+        }
+        
+        /// <summary>
+        /// Create a fallback material when the custom shader is not available.
+        /// </summary>
+        private void CreateFallbackForcefieldMaterial()
+        {
+            // Try Standard shader first
+            Shader fallbackShader = Shader.Find("Standard");
+            if (fallbackShader == null)
+            {
+                fallbackShader = Shader.Find("Universal Render Pipeline/Lit");
+            }
+            
+            if (fallbackShader != null)
+            {
+                _forcefieldMaterial = new Material(fallbackShader);
+                
+                // Configure for transparency
+                _forcefieldMaterial.SetFloat("_Mode", 3); // Transparent mode for Standard shader
+                _forcefieldMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                _forcefieldMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                _forcefieldMaterial.SetInt("_ZWrite", 0);
+                _forcefieldMaterial.DisableKeyword("_ALPHATEST_ON");
+                _forcefieldMaterial.EnableKeyword("_ALPHABLEND_ON");
+                _forcefieldMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                _forcefieldMaterial.renderQueue = 3000;
+                
+                Color forcefieldColorWithAlpha = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.4f);
+                _forcefieldMaterial.color = forcefieldColorWithAlpha;
+                
+                // Add emission for glow effect
+                _forcefieldMaterial.EnableKeyword("_EMISSION");
+                _forcefieldMaterial.SetColor("_EmissionColor", _forcefieldColor * 0.6f);
+                
                 _forcefieldRenderer.material = _forcefieldMaterial;
             }
         }

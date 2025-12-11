@@ -167,10 +167,7 @@ namespace BizarreChess
 
             // Authenticate
             var authResult = await _profileService.Authenticate();
-            if (authResult.Success)
-            {
-                Debug.Log($"[GameManager] Authenticated as {authResult.PlayerId}");
-            }
+            // Authentication complete
 
             if (_offlineMode)
             {
@@ -194,17 +191,17 @@ namespace BizarreChess
 
         private void StartOfflineGame()
         {
-            Debug.Log("[GameManager] Starting offline game...");
+
             
             // Create classic setup
             var setup = ChessFactory.CreateDefaultSetup();
             _unitDefinitions = setup.Pieces;
-            Debug.Log($"[GameManager] Created {_unitDefinitions.Count} unit definitions");
+
 
             // Initialize board
             _boardGraph = new BoardGraph(setup.Board);
             _moveValidator = new MoveValidator(_boardGraph, _unitDefinitions);
-            Debug.Log($"[GameManager] Board has {setup.Board.Nodes.Count} nodes");
+
 
             // Initialize game state
             _gameState = new GameState();
@@ -214,7 +211,7 @@ namespace BizarreChess
                 new PlayerSetup { DisplayName = "Player 2", Army = setup.GetArmy(1) }
             };
             _gameState.Initialize(setup.Board, playerSetups);
-            Debug.Log($"[GameManager] Game state has {_gameState.Units.Count} units");
+
 
             // Add items from setup
             AddItemsFromSetup(setup.Items);
@@ -226,14 +223,14 @@ namespace BizarreChess
                 RenderUnits();
                 RenderItems();
                 _boardRenderer.OnTileClicked += OnTileClicked;
-                Debug.Log("[GameManager] Board, units, and items rendered!");
+
             }
             else
             {
-                Debug.LogError("[GameManager] BoardRenderer is NULL! Cannot render.");
+
             }
 
-            Debug.Log("[GameManager] Offline game started!");
+
         }
 
         #endregion
@@ -256,7 +253,7 @@ namespace BizarreChess
             }
             else
             {
-                Debug.LogWarning("[GameManager] NetworkedGameState not found yet, will retry...");
+
                 StartCoroutine(WaitForNetworkedGameState());
             }
 
@@ -272,7 +269,7 @@ namespace BizarreChess
             if (_networkCallbacksSetup || _networkedGameState == null) return;
             _networkCallbacksSetup = true;
             
-            Debug.Log("[GameManager] Subscribing to NetworkedGameState events");
+
             _networkedGameState.OnUnitMoved += OnNetworkUnitMoved;
             _networkedGameState.OnUnitCaptured += OnNetworkUnitCaptured;
             _networkedGameState.OnCaptureBlocked += OnNetworkCaptureBlocked;
@@ -299,7 +296,7 @@ namespace BizarreChess
                 
                 if (_networkedGameState != null)
                 {
-                    Debug.Log("[GameManager] Found NetworkedGameState!");
+
                     SubscribeToNetworkedGameState();
                 }
             }
@@ -307,12 +304,12 @@ namespace BizarreChess
 
         private void OnHostStarted()
         {
-            Debug.Log("[GameManager] Host started, waiting for opponent...");
+
         }
 
         private void OnClientConnected()
         {
-            Debug.Log("[GameManager] Connected to game!");
+
             
             // Initialize rendering once we know the board
             var board = _networkedGameState.GetBoardGraph();
@@ -325,22 +322,22 @@ namespace BizarreChess
 
         private void OnNetworkUnitMoved(int unitId, int fromNode, int toNode, bool isRangedCapture)
         {
-            Debug.Log($"[GameManager] OnNetworkUnitMoved: Unit {unitId} from {fromNode} to {toNode}, isRangedCapture={isRangedCapture}");
+
             
             // Only move visually if NOT a ranged capture (ranged attackers stay in place)
             if (!isRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
             {
                 var position = GetWorldPosition(toNode);
-                Debug.Log($"[GameManager] Moving renderer to position {position}");
+
                 renderer.MoveTo(position);
             }
             else if (isRangedCapture)
             {
-                Debug.Log($"[GameManager] Ranged capture - unit stays in place");
+
             }
             else
             {
-                Debug.LogWarning($"[GameManager] No renderer found for unit {unitId}! Total renderers: {_unitRenderers.Count}");
+
             }
             ClearSelection();
         }
@@ -355,7 +352,7 @@ namespace BizarreChess
 
         private void OnNetworkCaptureBlocked(int attackerUnitId, int defenderUnitId, int fromNode)
         {
-            Debug.Log($"[GameManager] Network capture blocked! Attacker {attackerUnitId} bounces back, defender {defenderUnitId}'s forcefield consumed");
+
             
             // Play forcefield break animation on the defender
             if (_unitRenderers.TryGetValue(defenderUnitId, out var defenderRenderer))
@@ -382,12 +379,12 @@ namespace BizarreChess
         {
             int localPlayerId = _networkedGameState.LocalPlayerId;
             OnGameEnded?.Invoke(winnerId, localPlayerId);
-            Debug.Log(winnerId == localPlayerId ? "You won!" : (winnerId == -1 ? "Draw!" : "You lost!"));
+
         }
 
         private void OnNetworkItemPickedUp(int unitId, string itemId, int nodeId)
         {
-            Debug.Log($"[GameManager] Network item picked up: Unit {unitId} picked up {itemId}");
+
             
             // Visual feedback
             DestroyItemRenderer(itemId, animate: true);
@@ -407,7 +404,7 @@ namespace BizarreChess
 
         private void OnNetworkItemDropped(string itemId, int nodeId)
         {
-            Debug.Log($"[GameManager] Network item dropped: {itemId} at node {nodeId}");
+
             
             // Get the item from game state and spawn renderer
             var item = _gameState?.GetItem(itemId);
@@ -424,12 +421,12 @@ namespace BizarreChess
             // Prevent double initialization
             if (_networkGameInitialized)
             {
-                Debug.LogWarning("[GameManager] Network game already initialized, skipping");
+
                 return;
             }
             _networkGameInitialized = true;
             
-            Debug.Log("[GameManager] Network game started! Rendering board and units...");
+
             
             // Get game data from NetworkedGameState
             _boardGraph = _networkedGameState.GetBoardGraph();
@@ -451,7 +448,7 @@ namespace BizarreChess
                 
                 // Render units from networked state
                 var units = _networkedGameState.GetAllUnits();
-                Debug.Log($"[GameManager] About to render {units.Count} units...");
+
                 
                 foreach (var unit in units)
                 {
@@ -463,11 +460,11 @@ namespace BizarreChess
                 
                 _boardRenderer.OnTileClicked -= OnTileClicked; // Unsub first to prevent doubles
                 _boardRenderer.OnTileClicked += OnTileClicked;
-                Debug.Log($"[GameManager] Rendered {_unitRenderers.Count} units and {_itemRenderers.Count} items!");
+
             }
             else
             {
-                Debug.LogError("[GameManager] Cannot render - BoardRenderer or BoardGraph is null!");
+
             }
             
             // Position camera based on which player we are
@@ -483,11 +480,11 @@ namespace BizarreChess
             if (cameraController != null)
             {
                 cameraController.SetPlayerView(playerId, instant: true);
-                Debug.Log($"[GameManager] Camera positioned for player {playerId}");
+
             }
             else
             {
-                Debug.LogWarning("[GameManager] CameraController not found on main camera");
+
             }
         }
 
@@ -523,7 +520,7 @@ namespace BizarreChess
             // Don't create duplicate renderers
             if (_unitRenderers.ContainsKey(unit.UnitId))
             {
-                Debug.LogWarning($"[GameManager] Renderer already exists for unit {unit.UnitId}, skipping");
+
                 return;
             }
             
@@ -608,7 +605,7 @@ namespace BizarreChess
                 // Clone items so each game has independent instances
                 var clonedItem = item.Clone();
                 _gameState.AddItem(clonedItem);
-                Debug.Log($"[GameManager] Added item '{clonedItem.DisplayName}' at node {clonedItem.NodeId}");
+
             }
         }
 
@@ -639,7 +636,7 @@ namespace BizarreChess
         {
             if (_itemRenderers.ContainsKey(item.Id))
             {
-                Debug.LogWarning($"[GameManager] Item renderer already exists for {item.Id}, skipping");
+
                 return;
             }
 
@@ -727,7 +724,7 @@ namespace BizarreChess
         {
             if (!_networkedGameState.IsMyTurn())
             {
-                Debug.Log("Not your turn!");
+
                 return;
             }
 
@@ -836,23 +833,23 @@ namespace BizarreChess
 
         private void HandleOfflineItemClick(string itemId)
         {
-            Debug.Log($"[GameManager] Item clicked: {itemId}");
+
             
             var item = _gameState.GetItem(itemId);
             if (item == null)
             {
-                Debug.LogWarning($"[GameManager] Item {itemId} not found in game state!");
+
                 return;
             }
 
-            Debug.Log($"[GameManager] Item '{item.DisplayName}' is at node {item.NodeId}");
+
 
             // Check if we have a unit selected that can pick up this item
             if (_selectedUnitId.HasValue)
             {
                 var unit = _gameState.GetUnit(_selectedUnitId.Value);
-                Debug.Log($"[GameManager] Selected unit {_selectedUnitId.Value} at node {unit?.CurrentNodeId}, item at {item.NodeId}");
-                Debug.Log($"[GameManager] Unit checks: Owner={unit?.OwnerId}, CurrentPlayer={_gameState.CurrentPlayerId}, CanPickUp={unit?.CanPickUpItem}, CanAct={unit?.CanAct}");
+
+
                 
                 if (unit != null && 
                     unit.OwnerId == _gameState.CurrentPlayerId &&
@@ -861,23 +858,23 @@ namespace BizarreChess
                     unit.CanAct)
                 {
                     // Execute pickup
-                    Debug.Log("[GameManager] All conditions met, executing pickup!");
+
                     ExecuteItemPickup(_selectedUnitId.Value);
                     return;
                 }
                 else
                 {
-                    Debug.Log("[GameManager] Unit cannot pick up item - conditions not met");
+
                 }
             }
             else
             {
-                Debug.Log("[GameManager] No unit selected");
+
             }
 
             // If clicking on item without valid unit selected, check if there's our unit on that tile
             var unitAtNode = _gameState.GetUnitAtNode(item.NodeId);
-            Debug.Log($"[GameManager] Unit at item's node: {unitAtNode?.UnitId} (owner: {unitAtNode?.OwnerId})");
+
             if (unitAtNode != null && 
                 unitAtNode.OwnerId == _gameState.CurrentPlayerId &&
                 unitAtNode.CanPickUpItem &&
@@ -892,7 +889,7 @@ namespace BizarreChess
         {
             if (!_networkedGameState.IsMyTurn())
             {
-                Debug.Log("Not your turn!");
+
                 return;
             }
 
@@ -923,11 +920,11 @@ namespace BizarreChess
             
             if (!result.Success)
             {
-                Debug.LogWarning($"[GameManager] Item pickup failed: {result.Error}");
+
                 return;
             }
 
-            Debug.Log($"[GameManager] Unit {unitId} picked up item {result.ItemId}");
+
 
             // Visual feedback
             DestroyItemRenderer(result.ItemId, animate: true);
@@ -943,7 +940,7 @@ namespace BizarreChess
             }
 
             ClearSelection();
-            Debug.Log($"Turn {result.NewTurnNumber}, Player {result.NewCurrentPlayerId}'s turn");
+
         }
 
         private void SelectUnit(int unitId)
@@ -1280,7 +1277,7 @@ namespace BizarreChess
                 _networkedGameState.NotifyDragStartServerRpc(unitId);
             }
             
-            Debug.Log($"[GameManager] Drag started on unit {unitId}");
+
         }
 
         /// <summary>
@@ -1437,7 +1434,7 @@ namespace BizarreChess
             
             if (!result.Success)
             {
-                Debug.LogWarning($"Invalid move: {result.Error}");
+
                 return;
             }
 
@@ -1456,7 +1453,7 @@ namespace BizarreChess
                     attackerRenderer.MoveTo(GetWorldPosition(result.FromNode));
                 }
                 
-                Debug.Log($"[GameManager] Capture blocked by Forcefield! Attacker bounces back.");
+
             }
             else
             {
@@ -1476,7 +1473,7 @@ namespace BizarreChess
                     if (droppedItem != null)
                     {
                         SpawnDroppedItemRenderer(droppedItem);
-                        Debug.Log($"[GameManager] Item '{droppedItem.DisplayName}' dropped at node {result.DroppedItemNodeId.Value}");
+
                     }
                 }
 
@@ -1494,7 +1491,7 @@ namespace BizarreChess
             }
 
             ClearSelection();
-            Debug.Log($"Turn {result.NewTurnNumber}, Player {result.NewCurrentPlayerId}'s turn");
+
         }
 
         private void HandleGameEnd()
@@ -1503,7 +1500,7 @@ namespace BizarreChess
                 ? $"Player {_gameState.WinnerId.Value} wins by {_gameState.EndReason}!"
                 : $"Game ended in {_gameState.EndReason}";
             
-            Debug.Log($"[GameManager] {message}");
+
             OnGameEnded?.Invoke(_gameState.WinnerId ?? -1, _gameState.CurrentPlayerId);
         }
 

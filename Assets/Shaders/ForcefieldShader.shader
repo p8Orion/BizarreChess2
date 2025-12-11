@@ -2,14 +2,15 @@ Shader "BizarreChess/Forcefield"
 {
     Properties
     {
-        _Color ("Color", Color) = (0.3, 0.6, 1, 0.4)
+        _Color ("Color", Color) = (0.3, 0.7, 1, 0.5)
         _FresnelPower ("Fresnel Power", Range(0.5, 5)) = 2.0
         _NoiseScale ("Noise Scale", Range(1, 20)) = 8.0
         _NoiseSpeed ("Noise Speed", Range(0.1, 3)) = 0.5
         _PulseIntensity ("Pulse Intensity", Range(0, 1)) = 0.8
-        _EdgeGlow ("Edge Glow", Range(0, 2)) = 1.0
+        _EdgeGlow ("Edge Glow", Range(0, 2)) = 1.2
     }
     
+    // URP SubShader
     SubShader
     {
         Tags { "RenderType"="Transparent" "Queue"="Transparent" "RenderPipeline"="UniversalPipeline" }
@@ -148,6 +149,134 @@ Shader "BizarreChess/Forcefield"
         }
     }
     
+    // Built-in Render Pipeline SubShader (fallback)
+    SubShader
+    {
+        Tags { "RenderType"="Transparent" "Queue"="Transparent" }
+        LOD 100
+        
+        Blend SrcAlpha OneMinusSrcAlpha
+        ZWrite Off
+        Cull Back
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            
+            #include "UnityCG.cginc"
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float3 normal : NORMAL;
+                float2 uv : TEXCOORD0;
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float3 normalWS : TEXCOORD0;
+                float3 viewDirWS : TEXCOORD1;
+                float3 positionWS : TEXCOORD2;
+                float2 uv : TEXCOORD3;
+            };
+
+            float4 _Color;
+            float _FresnelPower;
+            float _NoiseScale;
+            float _NoiseSpeed;
+            float _PulseIntensity;
+            float _EdgeGlow;
+
+            // Simple 3D noise function
+            float hash(float3 p)
+            {
+                p = frac(p * 0.3183099 + 0.1);
+                p *= 17.0;
+                return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+            }
+
+            float noise(float3 p)
+            {
+                float3 i = floor(p);
+                float3 f = frac(p);
+                f = f * f * (3.0 - 2.0 * f);
+                
+                return lerp(
+                    lerp(
+                        lerp(hash(i + float3(0,0,0)), hash(i + float3(1,0,0)), f.x),
+                        lerp(hash(i + float3(0,1,0)), hash(i + float3(1,1,0)), f.x),
+                        f.y
+                    ),
+                    lerp(
+                        lerp(hash(i + float3(0,0,1)), hash(i + float3(1,0,1)), f.x),
+                        lerp(hash(i + float3(0,1,1)), hash(i + float3(1,1,1)), f.x),
+                        f.y
+                    ),
+                    f.z
+                );
+            }
+
+            // Fractal brownian motion for cloud-like effect
+            float fbm(float3 p)
+            {
+                float value = 0.0;
+                float amplitude = 0.5;
+                float frequency = 1.0;
+                
+                for (int i = 0; i < 4; i++)
+                {
+                    value += amplitude * noise(p * frequency);
+                    amplitude *= 0.5;
+                    frequency *= 2.0;
+                }
+                
+                return value;
+            }
+
+            v2f vert(appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.positionWS = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.normalWS = UnityObjectToWorldNormal(v.normal);
+                o.viewDirWS = WorldSpaceViewDir(v.vertex);
+                o.uv = v.uv;
+                return o;
+            }
+
+            fixed4 frag(v2f i) : SV_Target
+            {
+                float3 normalWS = normalize(i.normalWS);
+                float3 viewDirWS = normalize(i.viewDirWS);
+                
+                // Fresnel effect - brighter at edges
+                float fresnel = pow(1.0 - saturate(dot(normalWS, viewDirWS)), _FresnelPower);
+                
+                // Animated noise for cloud effect
+                float time = _Time.y * _NoiseSpeed;
+                float3 noisePos = i.positionWS * _NoiseScale + float3(time, time * 0.7, time * 0.3);
+                float cloudNoise = fbm(noisePos);
+                
+                // Pulse animation
+                float pulse = sin(_Time.y * 3.0) * 0.5 + 0.5;
+                float pulseEffect = 1.0 + pulse * _PulseIntensity;
+                
+                // Combine effects
+                float alpha = _Color.a * (fresnel * _EdgeGlow + cloudNoise * 0.5) * pulseEffect;
+                alpha = saturate(alpha);
+                
+                // Color with slight variation from noise
+                float3 finalColor = _Color.rgb * (1.0 + cloudNoise * 0.3);
+                finalColor += fresnel * _Color.rgb * 0.5; // Extra glow at edges
+                
+                return fixed4(finalColor, alpha);
+            }
+            ENDCG
+        }
+    }
+    
     Fallback "Transparent/Diffuse"
 }
-

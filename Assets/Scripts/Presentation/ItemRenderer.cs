@@ -57,10 +57,31 @@ namespace BizarreChess.Presentation
             // Set color
             if (_meshRenderer != null)
             {
-                _material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                _material.color = item.ItemColor;
-                _material.SetFloat("_Smoothness", 0.8f);
-                _meshRenderer.material = _material;
+                // Try to find a suitable shader - use Standard as it's always available
+                Shader shader = Shader.Find("Standard");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Diffuse");
+                }
+                if (shader == null)
+                {
+                    shader = Shader.Find("Universal Render Pipeline/Lit");
+                }
+                
+                if (shader != null)
+                {
+                    _material = new Material(shader);
+                    _material.color = item.ItemColor;
+                    _material.SetFloat("_Smoothness", 0.8f);
+                    _meshRenderer.material = _material;
+                }
+                else
+                {
+                    // Fallback: use the material already on the mesh renderer
+                    _material = _meshRenderer.material;
+                    _material.color = item.ItemColor;
+                    Debug.LogWarning("ItemRenderer: Could not find any suitable shader, using default material.");
+                }
             }
 
             // Random bob phase for variety
