@@ -362,16 +362,19 @@ namespace BizarreChess.Core.Factories
         #region Texture Loading
 
         /// <summary>
-        /// Apply piece textures from Resources folder.
+        /// Apply piece visuals from Resources folder.
         /// Priority order:
-        /// 1. Revolution (Pieces/Revolution/) - lathe-like 3D volume
-        /// 2. Displacement (Pieces/Displacement/) - cylindrical displacement map
+        /// 1. Imported model (Pieces/Models/) - Blender FBX/OBJ/GLB/prefab or mesh asset
+        /// 2. Revolution (Pieces/Revolution/) - lathe-like 3D volume
         /// 3. Token (Pieces/Tokens/) - flat cylinder with PNG on top
         /// 4. Fallback: Token2D with no texture (solid color cylinder)
         /// </summary>
         private static void ApplyPieceTextures(UnitDefinition unit, string pieceName)
         {
-            // Try revolution texture first (lathe-like 3D from profile PNG)
+            if (TryApplyImportedModel(unit, pieceName))
+                return;
+
+            // Try revolution texture (lathe-like 3D from profile PNG)
             var revolutionTex = Resources.Load<Texture2D>($"Pieces/Revolution/{pieceName}");
             if (revolutionTex != null)
             {
@@ -392,6 +395,29 @@ namespace BizarreChess.Core.Factories
             // Fallback: Token2D with no texture (solid color cylinder)
             unit.RenderMode = PieceRenderMode.Token2D;
             unit.TokenTexture = null;
+        }
+
+        private static bool TryApplyImportedModel(UnitDefinition unit, string pieceName)
+        {
+            var model = Resources.Load<GameObject>($"Pieces/Models/{pieceName}")
+                ?? Resources.Load<GameObject>($"Pieces/Models/{pieceName.ToLowerInvariant()}");
+            if (model != null)
+            {
+                unit.RenderMode = PieceRenderMode.ImportedMesh;
+                unit.ImportedModel = model;
+                return true;
+            }
+
+            var mesh = Resources.Load<Mesh>($"Pieces/Models/{pieceName}")
+                ?? Resources.Load<Mesh>($"Pieces/Models/{pieceName.ToLowerInvariant()}");
+            if (mesh != null)
+            {
+                unit.RenderMode = PieceRenderMode.ImportedMesh;
+                unit.ImportedMesh = mesh;
+                return true;
+            }
+
+            return false;
         }
 
         #endregion

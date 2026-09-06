@@ -88,13 +88,15 @@ namespace BizarreChess.Presentation
             _joinCodeDisplay = CreateText(_mainMenuPanel.transform, "", 24, new Vector2(0, -80));
             _joinCodeDisplay.fontStyle = TMPro.FontStyles.Bold;
             _joinCodeDisplay.color = Color.yellow;
-            
-            // Direct connection section (LAN)
+
+#if !UNITY_WEBGL || UNITY_EDITOR
+            // LAN does not work in the browser; keep it in Editor/standalone only.
             var lanLabel = CreateText(_mainMenuPanel.transform, "— Direct (LAN) —", 18, new Vector2(0, -130));
             _hostButton = CreateButton(_mainMenuPanel.transform, "Host (LAN)", new Vector2(0, -170));
             _addressInput = CreateInputField(_mainMenuPanel.transform, "127.0.0.1", new Vector2(-60, -220));
             _joinButton = CreateButton(_mainMenuPanel.transform, "Join", new Vector2(80, -220));
             _joinButton.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 40);
+#endif
         }
 
         private void CreateGameUI()

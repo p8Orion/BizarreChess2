@@ -58,7 +58,18 @@ namespace BizarreChess.Core.Units
         /// The resulting mesh uses the player's primary color uniformly.
         /// </summary>
         public Texture2D RevolutionTexture;
-        public float PieceHeight = 1.5f;        // Height for displacement/revolution mode
+        /// <summary>
+        /// Optional Blender FBX/OBJ/GLB/prefab for ImportedMesh mode.
+        /// Drop the file in Resources/Pieces/Models/ named like the piece (King, Queen, ...).
+        /// Model should sit on Y=0, face +Z (towards the opponent for player 0).
+        /// Optional travel clip: name it Move or *_Move (e.g. Lancer_Move).
+        /// </summary>
+        public GameObject ImportedModel;
+        /// <summary>
+        /// Optional standalone mesh asset if there is no prefab/FBX GameObject.
+        /// </summary>
+        public Mesh ImportedMesh;
+        public float PieceHeight = 1.5f;        // Height for displacement/revolution/imported mode
 
         public char GetUnicode(int playerSide)
         {
@@ -97,7 +108,11 @@ namespace BizarreChess.Core.Units
         /// X axis = radius from center, Y axis = height.
         /// Alpha channel defines solid vs empty space.
         /// </summary>
-        RevolutionVolume
+        RevolutionVolume,
+        /// <summary>
+        /// Traditional authored mesh from Blender (FBX/OBJ/GLB/prefab) in Resources/Pieces/Models/.
+        /// </summary>
+        ImportedMesh
     }
 
     /// <summary>

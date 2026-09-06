@@ -4,12 +4,13 @@ using BizarreChess.Core.Units;
 using BizarreChess.Core.Player;
 using BizarreChess.Core.Skills;
 using BizarreChess.Core.Items;
+using BizarreChess.Presentation;
 
 namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
     /// Renders a single unit on the board.
-    /// Supports Token2D and RevolutionVolume rendering modes.
+    /// Supports Token2D, RevolutionVolume, and ImportedMesh rendering modes.
     /// </summary>
     public class UnitRenderer : MonoBehaviour
     {
@@ -40,8 +41,8 @@ namespace BizarreChess.Presentation.UnitRenderer
         [SerializeField] private float _minDragDistanceForRotation = 0.05f;
         
         [Header("Forcefield Settings")]
-        [SerializeField] private float _forcefieldScale = 1.4f;
-        [SerializeField] private float _forcefieldVerticalOffset = 0.3f;
+        [SerializeField] private float _forcefieldScale = 1.12f;
+        [SerializeField] private float _forcefieldVerticalOffset = 0.22f;
 
         public int UnitId { get; private set; }
         public System.Action OnClicked;
@@ -54,6 +55,10 @@ namespace BizarreChess.Presentation.UnitRenderer
         private bool _isSelected;
         private float _moveProgress;
         private PieceRenderMode _renderMode;
+        private Renderer[] _pieceRenderers;
+        private Color[][] _importedOriginalColors;
+        private ImportedMoveClipPlayer _importedMoveClip;
+        private const float ImportedPlayerBlend = 0.5f;
         
         // Drag state
         private bool _isDragging;
@@ -91,17 +96,17 @@ namespace BizarreChess.Presentation.UnitRenderer
             _definition = definition;
             _targetPosition = position;
             _renderMode = definition.RenderMode;
+            _currentDragYaw = transform.eulerAngles.y;
 
             // Auto-find components if not assigned (for dynamically created units)
-            if (_meshRenderer == null)
-                _meshRenderer = GetComponent<MeshRenderer>();
+            CachePieceRenderers();
             if (_unicodeText == null)
                 _unicodeText = GetComponentInChildren<TextMeshPro>();
             if (_spriteRenderer == null)
                 _spriteRenderer = GetComponent<SpriteRenderer>();
 
             // Both render modes use 3D meshes, position them on the board
-            bool hasMesh = _meshRenderer != null;
+            bool hasMesh = _meshRenderer != null || _renderMode == PieceRenderMode.ImportedMesh;
             if (hasMesh)
             {
                 transform.position = position; // 3D pieces sit on the board
@@ -109,6 +114,14 @@ namespace BizarreChess.Presentation.UnitRenderer
             else
             {
                 transform.position = position + Vector3.up * 0.5f; // 2D fallback hovers above
+            }
+
+            transform.localScale = Vector3.one * GetVisualScale();
+
+            if (_renderMode == PieceRenderMode.ImportedMesh)
+            {
+                ImportedMeshGenerator.SnapVisualToGround(transform, position.y);
+                _importedMoveClip = ImportedMoveClipPlayer.TryCreate(transform, definition.ImportedModel);
             }
 
             // Check for active forcefield skill
@@ -173,23 +186,15 @@ namespace BizarreChess.Presentation.UnitRenderer
             {
                 _forcefieldMaterial = new Material(_forcefieldShader);
                 
-                // Configure the custom forcefield shader with proper parameters
-                // Color with good alpha for visibility
-                Color shaderColor = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.5f);
+                Color shaderColor = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.22f);
                 _forcefieldMaterial.SetColor("_Color", shaderColor);
                 
-                // Fresnel - makes edges brighter
-                _forcefieldMaterial.SetFloat("_FresnelPower", 2.0f);
-                
-                // Noise - cloud effect
-                _forcefieldMaterial.SetFloat("_NoiseScale", 8.0f);
-                _forcefieldMaterial.SetFloat("_NoiseSpeed", 0.5f);
-                
-                // Pulse - breathing animation
-                _forcefieldMaterial.SetFloat("_PulseIntensity", 0.8f);
-                
-                // Edge glow
-                _forcefieldMaterial.SetFloat("_EdgeGlow", 1.2f);
+                // Tighter rim, less filled-in cloud
+                _forcefieldMaterial.SetFloat("_FresnelPower", 3.2f);
+                _forcefieldMaterial.SetFloat("_NoiseScale", 6.0f);
+                _forcefieldMaterial.SetFloat("_NoiseSpeed", 0.25f);
+                _forcefieldMaterial.SetFloat("_PulseIntensity", 0.2f);
+                _forcefieldMaterial.SetFloat("_EdgeGlow", 0.65f);
                 
                 // Ensure proper render queue for transparency
                 _forcefieldMaterial.renderQueue = 3000;
@@ -208,12 +213,8 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// </summary>
         private void CreateFallbackForcefieldMaterial()
         {
-            // Try Standard shader first
-            Shader fallbackShader = Shader.Find("Standard");
-            if (fallbackShader == null)
-            {
-                fallbackShader = Shader.Find("Universal Render Pipeline/Lit");
-            }
+            Shader fallbackShader = Shader.Find("Standard")
+                ?? Shader.Find("Universal Render Pipeline/Lit");
             
             if (fallbackShader != null)
             {
@@ -229,12 +230,11 @@ namespace BizarreChess.Presentation.UnitRenderer
                 _forcefieldMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
                 _forcefieldMaterial.renderQueue = 3000;
                 
-                Color forcefieldColorWithAlpha = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.4f);
+                Color forcefieldColorWithAlpha = new Color(_forcefieldColor.r, _forcefieldColor.g, _forcefieldColor.b, 0.18f);
                 _forcefieldMaterial.color = forcefieldColorWithAlpha;
                 
-                // Add emission for glow effect
                 _forcefieldMaterial.EnableKeyword("_EMISSION");
-                _forcefieldMaterial.SetColor("_EmissionColor", _forcefieldColor * 0.6f);
+                _forcefieldMaterial.SetColor("_EmissionColor", _forcefieldColor * 0.22f);
                 
                 _forcefieldRenderer.material = _forcefieldMaterial;
             }
@@ -372,14 +372,25 @@ namespace BizarreChess.Presentation.UnitRenderer
             Color secondaryColor = colorScheme.SecondaryColor;
             Color outlineColor = _currentState.OwnerId == 0 ? Color.black : Color.white;
 
-            // 3D mesh rendering (Token2D or RevolutionVolume)
-            if (_meshRenderer != null && _meshRenderer.material != null)
+            // 3D mesh rendering (Token2D, RevolutionVolume, or ImportedMesh)
+            bool hasPieceMesh = false;
+            if (_renderMode == PieceRenderMode.ImportedMesh)
             {
-                var mat = _meshRenderer.material;
-                ApplyTextureToMaterial(mat, colorScheme);
+                hasPieceMesh = ApplyImportedPlayerBlend(colorScheme.PrimaryColor);
             }
+            else
+            {
+                ForEachPieceRenderer(renderer =>
+                {
+                    if (renderer.material == null)
+                        return;
+                    ApplyTextureToMaterial(renderer.material, colorScheme);
+                    hasPieceMesh = true;
+                });
+            }
+
             // 2D Unicode text fallback (when no mesh)
-            else if (_unicodeText != null)
+            if (!hasPieceMesh && _unicodeText != null)
             {
                 char pieceChar = _definition.GetUnicode(_currentState.OwnerId);
                 string displayText = ChessUnicode.GetPieceLetter(_definition.PieceType);
@@ -435,27 +446,18 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
 
             // Keep consistent scale (no scale change on selection)
-            // Token2D has no scale applied, RevolutionVolume has 0.8 scale from generator
-            float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
-            transform.localScale = Vector3.one * baseScale;
+            // Token2D has no scale applied, 3D volumes use 0.8 from their generators
+            transform.localScale = Vector3.one * GetVisualScale();
             
-            // Add emission glow when selected (works for both render modes)
-            if (_meshRenderer != null && _meshRenderer.material != null)
+            // Add emission glow when selected (works for all mesh render modes)
+            if (selected)
             {
-                if (selected)
-                {
-                    _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use SECONDARY color for selection highlight
-                    var colorScheme = PlayerColors.Get(_currentState.OwnerId);
-                    Color emissionColor = colorScheme.SecondaryColor * 0.8f;
-                    _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
-                }
-                else
-                {
-                    // Disable emission when not selected
-                    _meshRenderer.material.DisableKeyword("_EMISSION");
-                    _meshRenderer.material.SetColor("_EmissionColor", Color.black);
-                }
+                var colorScheme = PlayerColors.Get(_currentState.OwnerId);
+                SetPieceEmission(colorScheme.SecondaryColor * 0.8f);
+            }
+            else
+            {
+                ClearPieceEmission();
             }
         }
 
@@ -464,24 +466,17 @@ namespace BizarreChess.Presentation.UnitRenderer
         /// </summary>
         public void SetCapturable(bool capturable, int attackerOwnerId, bool isHover = false)
         {
-            if (_meshRenderer != null && _meshRenderer.material != null)
+            if (capturable)
             {
-                if (capturable)
-                {
-                    _meshRenderer.material.EnableKeyword("_EMISSION");
-                    // Use attacker's SECONDARY color for selection, PRIMARY for hover
-                    var colorScheme = PlayerColors.Get(attackerOwnerId);
-                    Color emissionColor = isHover 
-                        ? colorScheme.PrimaryColor * 0.6f 
-                        : colorScheme.SecondaryColor * 0.6f;
-                    _meshRenderer.material.SetColor("_EmissionColor", emissionColor);
-                }
-                else if (!_isSelected)
-                {
-                    // Only disable if not currently selected
-                    _meshRenderer.material.DisableKeyword("_EMISSION");
-                    _meshRenderer.material.SetColor("_EmissionColor", Color.black);
-                }
+                var colorScheme = PlayerColors.Get(attackerOwnerId);
+                Color emissionColor = isHover
+                    ? colorScheme.PrimaryColor * 0.6f
+                    : colorScheme.SecondaryColor * 0.6f;
+                SetPieceEmission(emissionColor);
+            }
+            else if (!_isSelected)
+            {
+                ClearPieceEmission();
             }
         }
 
@@ -489,7 +484,7 @@ namespace BizarreChess.Presentation.UnitRenderer
         {
             _startPosition = transform.position;
             // Both render modes use 3D meshes that sit on the board
-            bool hasMesh = _meshRenderer != null;
+            bool hasMesh = _meshRenderer != null || _renderMode == PieceRenderMode.ImportedMesh;
             _targetPosition = hasMesh ? newPosition : newPosition + Vector3.up * 0.5f;
             _isMoving = true;
             _moveProgress = 0f;
@@ -497,6 +492,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             // Update original position for future drags
             _originalPosition = _targetPosition;
             
+            _importedMoveClip?.Play();
             Debug.Log($"[UnitRenderer] MoveTo: from {_startPosition} to {_targetPosition}");
         }
 
@@ -525,17 +521,23 @@ namespace BizarreChess.Presentation.UnitRenderer
                 {
                     transform.position = _targetPosition;
                     _isMoving = false;
+                    _importedMoveClip?.NotifyTravelFinished();
                     Debug.Log($"[UnitRenderer] Movement complete at {_targetPosition}");
                 }
                 else
                 {
-                    // Lerp from start to target position with bounce
                     Vector3 currentPos = Vector3.Lerp(_startPosition, _targetPosition, _moveProgress);
-                    float bounce = Mathf.Sin(_moveProgress * Mathf.PI) * _bounceHeight;
-                    currentPos.y += bounce;
+                    bool useImportedClip = _importedMoveClip != null && _importedMoveClip.HasClip;
+                    if (!useImportedClip)
+                    {
+                        float bounce = Mathf.Sin(_moveProgress * Mathf.PI) * _bounceHeight;
+                        currentPos.y += bounce;
+                    }
                     transform.position = currentPos;
                 }
             }
+
+            _importedMoveClip?.Tick(Time.deltaTime);
             
             // Forcefield handled by shader animation, no per-frame update needed
 
@@ -564,6 +566,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             _isDragging = true;
             _isMoving = false;
             _isReturning = false;
+            _importedMoveClip?.Stop();
             _originalPosition = transform.position;
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
@@ -588,6 +591,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             _isDragging = true;
             _isMoving = false;
             _isReturning = false;
+            _importedMoveClip?.Stop();
             _originalPosition = transform.position;
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
@@ -687,7 +691,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             // Smoothly scale up during drag
             _currentLiftProgress = Mathf.MoveTowards(_currentLiftProgress, 1f, Time.deltaTime * _dragLiftSpeed);
             
-            float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
+            float baseScale = GetVisualScale();
             float targetScale = baseScale * _dragScale;
             float currentScale = Mathf.Lerp(baseScale, targetScale, _currentLiftProgress);
             transform.localScale = Vector3.one * currentScale;
@@ -723,7 +727,7 @@ namespace BizarreChess.Presentation.UnitRenderer
                 transform.position = Vector3.Lerp(_startPosition, _targetPosition, t);
                 
                 // Also restore scale
-                float baseScale = (_renderMode == PieceRenderMode.RevolutionVolume) ? 0.8f : 1f;
+                float baseScale = GetVisualScale();
                 float currentScale = Mathf.Lerp(baseScale * _dragScale, baseScale, t);
                 transform.localScale = Vector3.one * currentScale;
             }
@@ -767,14 +771,194 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
         }
 
+        private float GetVisualScale()
+        {
+            return _renderMode == PieceRenderMode.Token2D ? 1f : 0.8f;
+        }
+
+        private void CachePieceRenderers()
+        {
+            if (_meshRenderer == null)
+                _meshRenderer = GetComponent<MeshRenderer>() ?? GetComponentInChildren<MeshRenderer>();
+
+            var renderers = GetComponentsInChildren<Renderer>(true);
+            int count = 0;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (IsPieceRenderer(renderers[i]))
+                    count++;
+            }
+
+            _pieceRenderers = new Renderer[count];
+            int write = 0;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (!IsPieceRenderer(renderers[i]))
+                    continue;
+                _pieceRenderers[write++] = renderers[i];
+            }
+
+            CacheImportedOriginalColors();
+        }
+
+        private static bool IsPieceRenderer(Renderer renderer)
+        {
+            return renderer != null
+                && renderer is not ParticleSystemRenderer
+                && renderer is not SpriteRenderer
+                && renderer is not LineRenderer;
+        }
+
+        private void CacheImportedOriginalColors()
+        {
+            _importedOriginalColors = null;
+            if (_renderMode != PieceRenderMode.ImportedMesh || _pieceRenderers == null)
+                return;
+
+            _importedOriginalColors = new Color[_pieceRenderers.Length][];
+            for (int i = 0; i < _pieceRenderers.Length; i++)
+            {
+                var renderer = _pieceRenderers[i];
+                if (renderer == null)
+                {
+                    _importedOriginalColors[i] = System.Array.Empty<Color>();
+                    continue;
+                }
+
+                var mats = renderer.materials;
+                var colors = new Color[mats.Length];
+                for (int j = 0; j < mats.Length; j++)
+                    colors[j] = GetMaterialColor(mats[j]);
+                _importedOriginalColors[i] = colors;
+            }
+        }
+
+        private bool ApplyImportedPlayerBlend(Color playerColor)
+        {
+            if (_pieceRenderers == null || _importedOriginalColors == null)
+                return false;
+
+            bool hasMesh = false;
+            for (int i = 0; i < _pieceRenderers.Length; i++)
+            {
+                var renderer = _pieceRenderers[i];
+                if (renderer == null || renderer == _forcefieldRenderer || renderer == _heldItemRenderer)
+                    continue;
+
+                var mats = renderer.materials;
+                var originals = i < _importedOriginalColors.Length ? _importedOriginalColors[i] : null;
+                if (originals == null)
+                    continue;
+
+                for (int j = 0; j < mats.Length && j < originals.Length; j++)
+                {
+                    var mat = mats[j];
+                    if (mat == null)
+                        continue;
+
+                    hasMesh = true;
+                    if (IsGoldMaterial(mat, originals[j]))
+                    {
+                        SetMaterialColor(mat, originals[j]);
+                        continue;
+                    }
+
+                    Color blended = Color.Lerp(originals[j], playerColor, ImportedPlayerBlend);
+                    blended.a = originals[j].a;
+                    SetMaterialColor(mat, blended);
+                }
+            }
+
+            return hasMesh;
+        }
+
+        private static bool IsGoldMaterial(Material mat, Color color)
+        {
+            if (mat != null)
+            {
+                string name = mat.name.ToLowerInvariant();
+                if (name.Contains("gold") || name.Contains("dorado") || name.Contains("gilt")
+                    || name.Contains("brass") || name.Contains("oro"))
+                    return true;
+            }
+
+            Color.RGBToHSV(color, out float h, out float s, out float v);
+            bool goldHue = h >= 0.07f && h <= 0.18f && s >= 0.3f && v >= 0.4f;
+            if (goldHue)
+                return true;
+
+            float metallic = 0f;
+            if (mat != null && mat.HasProperty("_Metallic"))
+                metallic = mat.GetFloat("_Metallic");
+
+            return metallic > 0.5f && h >= 0.06f && h <= 0.20f && v >= 0.35f;
+        }
+
+        private static Color GetMaterialColor(Material mat)
+        {
+            if (mat == null)
+                return Color.white;
+            if (mat.HasProperty("_BaseColor"))
+                return mat.GetColor("_BaseColor");
+            if (mat.HasProperty("_Color"))
+                return mat.GetColor("_Color");
+            return mat.color;
+        }
+
+        private static void SetMaterialColor(Material mat, Color color)
+        {
+            if (mat == null)
+                return;
+            if (mat.HasProperty("_BaseColor"))
+                mat.SetColor("_BaseColor", color);
+            if (mat.HasProperty("_Color"))
+                mat.SetColor("_Color", color);
+            mat.color = color;
+        }
+
+        private void ForEachPieceRenderer(System.Action<Renderer> action)
+        {
+            if (_pieceRenderers == null)
+                return;
+
+            for (int i = 0; i < _pieceRenderers.Length; i++)
+            {
+                var renderer = _pieceRenderers[i];
+                if (renderer == null || renderer == _forcefieldRenderer || renderer == _heldItemRenderer)
+                    continue;
+                action(renderer);
+            }
+        }
+
+        private void SetPieceEmission(Color emissionColor)
+        {
+            ForEachPieceRenderer(renderer =>
+            {
+                if (renderer.material == null) return;
+                renderer.material.EnableKeyword("_EMISSION");
+                renderer.material.SetColor("_EmissionColor", emissionColor);
+            });
+        }
+
+        private void ClearPieceEmission()
+        {
+            ForEachPieceRenderer(renderer =>
+            {
+                if (renderer.material == null) return;
+                renderer.material.DisableKeyword("_EMISSION");
+                renderer.material.SetColor("_EmissionColor", Color.black);
+            });
+        }
+
         private void SetAlpha(float alpha)
         {
-            if (_meshRenderer != null && _meshRenderer.material != null)
+            ForEachPieceRenderer(renderer =>
             {
-                var color = _meshRenderer.material.color;
+                if (renderer.material == null) return;
+                var color = renderer.material.color;
                 color.a = alpha;
-                _meshRenderer.material.color = color;
-            }
+                renderer.material.color = color;
+            });
             
             if (_spriteRenderer != null)
             {
