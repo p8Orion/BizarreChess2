@@ -17,6 +17,10 @@
    - Add package by name: `com.unity.inputsystem`
    - En Player Settings > Active Input Handling > seleccionar "Both" o "Input System Package"
 
+5. **Unity glTFast** (importar `.glb` / `.gltf`)
+   - Add package by name: `com.unity.cloud.gltfast`
+   - Ya está en `Packages/manifest.json`. Al abrir el proyecto, Unity lo resuelve solo.
+
 ## Setup Rápido
 
 ### Opción A: Usar el menú de editor
@@ -94,10 +98,19 @@ Scripts/
   - Ejércitos guardados
   - ⚠️ SEPARADO del game server
 
+## Publicar en la web (WebGL + Relay)
+
+En el browser **solo funciona Host/Join por Relay**, no LAN.
+
+1. En Unity Dashboard del proyecto (`0228fca8-...`): activar **Authentication** (Anonymous) y **Relay**.
+2. En el editor: menú **Bizarre Chess > Build WebGL** (o correr el método `BizarreChess.Editor.WebGLBuilder.Build`).
+3. Subir la carpeta `BuildWeb` a itch.io / Netlify / Pages **por HTTPS**.
+4. En itch: HTML project, zip del contenido de `BuildWeb`. Si el wasm no arranca, activar SharedArrayBuffer / COOP+COEP.
+
 ## Próximos Pasos
 
-1. [ ] Instalar Netcode packages
-2. [ ] Configurar WebSocket transport para WebGL
+1. [x] Instalar Netcode packages
+2. [x] WebSocket + Relay para WebGL
 3. [ ] Implementar ProfileService real (PlayFab/Firebase/UGS)
 4. [ ] Crear editor visual de grafos
 5. [ ] Agregar piezas bizarras custom

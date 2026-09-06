@@ -11,6 +11,7 @@ using BizarreChess.Presentation;
 using UnitRendererType = BizarreChess.Presentation.UnitRenderer.UnitRenderer;
 using Token2DMeshGenerator = BizarreChess.Presentation.UnitRenderer.Token2DMeshGenerator;
 using RevolutionMeshGenerator = BizarreChess.Presentation.UnitRenderer.RevolutionMeshGenerator;
+using ImportedMeshGenerator = BizarreChess.Presentation.UnitRenderer.ImportedMeshGenerator;
 
 namespace BizarreChess
 {
@@ -553,6 +554,16 @@ namespace BizarreChess
                             definition.RevolutionTexture,
                             playerId,
                             definition.PieceHeight
+                        );
+                        break;
+
+                    case PieceRenderMode.ImportedMesh:
+                        pieceGO = ImportedMeshGenerator.CreateImportedObject(
+                            definition.ImportedModel,
+                            definition.ImportedMesh,
+                            playerId,
+                            definition.PieceHeight,
+                            definition.UnitId
                         );
                         break;
 
