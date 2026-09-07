@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Bizarre Chess</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header id="game-hud" hidden>
+      <div class="hud-units">
+        <div class="hud-unit" id="hud-selected-slot">
+          <div class="hud-portrait-wrap" data-empty="true">
+            <canvas id="hud-portrait" width="176" height="176"></canvas>
+          </div>
+          <div class="hud-identity">
+            <div id="hud-name">Select a piece</div>
+            <div id="hud-move">Tap a piece to see how it moves.</div>
+            <div class="hud-unit-actions" id="hud-selected-actions"></div>
+          </div>
+        </div>
+        <div class="hud-unit is-hover" id="hud-hover-slot" hidden>
+          <div class="hud-portrait-wrap" id="hud-hover-portrait-wrap" data-empty="true">
+            <canvas id="hud-hover-portrait" width="176" height="176"></canvas>
+          </div>
+          <div class="hud-identity">
+            <div id="hud-hover-name"></div>
+            <div id="hud-hover-move"></div>
+            <div class="hud-unit-actions" id="hud-hover-actions"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hud-main">
+        <div class="hud-meta">
+          <div id="hud-turn">Turn 1</div>
+          <div id="net-info"></div>
+          <button id="btn-resign" class="ghost">Resign</button>
+        </div>
+        <div id="hud-actions"></div>
+        <div id="hud-notice" hidden></div>
+      </div>
+    </header>
+
+    <div id="menu-card">
+      <div id="title">Bizarre Chess</div>
+      <div id="menu-status">Choose army, board, colors and pattern, then play offline or host a room.</div>
+      <div id="menu">
+        <button id="btn-offline">Play Offline</button>
+        <label class="army">
+          P1 army
+          <select id="army-kind"></select>
+        </label>
+        <label class="army">
+          P2 army
+          <select id="army-p2"></select>
+        </label>
+        <div class="army-actions">
+          <button id="btn-copy-army" class="ghost" type="button">Copy army</button>
+          <button id="btn-army-editor" class="ghost" type="button">Edit army</button>
+        </div>
+        <label class="board">
+          Board
+          <select id="board-kind"></select>
+        </label>
+        <div class="colors">
+          <div class="player-style">
+            <span>P1</span>
+            <label title="Primary"><input id="color-p1" type="color" value="#f2ebd9" /></label>
+            <label title="Secondary"><input id="color-p1-sec" type="color" value="#c4a15a" /></label>
+            <select id="pattern-p1" aria-label="P1 pattern"></select>
+          </div>
+          <div class="player-style">
+            <span>P2</span>
+            <label title="Primary"><input id="color-p2" type="color" value="#33261f" /></label>
+            <label title="Secondary"><input id="color-p2-sec" type="color" value="#8a5a2b" /></label>
+            <select id="pattern-p2" aria-label="P2 pattern"></select>
+          </div>
+        </div>
+        <div class="sep">Online</div>
+        <button id="btn-host">Host</button>
+        <div class="row">
+          <input id="join-code" placeholder="Code" maxlength="6" />
+          <button id="btn-join">Join</button>
+        </div>
+      </div>
+    </div>
+
+    <aside id="army-editor-window" hidden>
+      <div class="editor-window-bar">
+        <strong id="army-editor-title">Army</strong>
+        <button id="btn-close-army-editor" class="ghost" type="button">Close</button>
+      </div>
+      <section id="army-editor"></section>
+    </aside>
+
+    <canvas id="game"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

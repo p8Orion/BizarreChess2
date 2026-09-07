@@ -28,6 +28,7 @@ namespace BizarreChess.Presentation.UnitRenderer
         [Header("Animation")]
         [SerializeField] private float _moveSpeed = 5f;
         [SerializeField] private float _bounceHeight = 0.2f;
+        [SerializeField] private float _meleeStopShort = 0.5f;
         
         [Header("Drag Settings")]
         [SerializeField] private float _dragLiftHeight = 0.5f;
@@ -51,13 +52,25 @@ namespace BizarreChess.Presentation.UnitRenderer
         private UnitDefinition _definition;
         private Vector3 _startPosition;
         private Vector3 _targetPosition;
+        private Vector3 _segmentEnd;
         private bool _isMoving;
         private bool _isSelected;
         private float _moveProgress;
+        private float _segmentDuration;
+        private enum MeleePhase { None, Approach, Attack, Finish }
+        private MeleePhase _meleePhase;
+        private System.Action _onMeleeStrike;
+        private bool _meleeStrikeFired;
+        private bool _meleeUsingPunch;
+        private float _meleePunchEndTime;
+        private System.Action _onAttackComplete;
+        private bool _awaitingAttackComplete;
+        private bool _awaitingImportedAttack;
+        private bool _isDying;
         private PieceRenderMode _renderMode;
         private Renderer[] _pieceRenderers;
         private Color[][] _importedOriginalColors;
-        private ImportedMoveClipPlayer _importedMoveClip;
+        private ImportedPieceClipPlayer _importedClips;
         private const float ImportedPlayerBlend = 0.5f;
         
         // Drag state
@@ -121,7 +134,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             if (_renderMode == PieceRenderMode.ImportedMesh)
             {
                 ImportedMeshGenerator.SnapVisualToGround(transform, position.y);
-                _importedMoveClip = ImportedMoveClipPlayer.TryCreate(transform, definition.ImportedModel);
+                _importedClips = ImportedPieceClipPlayer.TryCreate(transform, definition.ImportedModel);
             }
 
             // Check for active forcefield skill
@@ -480,24 +493,148 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
         }
 
-        public void MoveTo(Vector3 newPosition)
+        public void MoveTo(Vector3 newPosition, bool playAttack = false, System.Action onMeleeStrike = null)
         {
             _startPosition = transform.position;
-            // Both render modes use 3D meshes that sit on the board
             bool hasMesh = _meshRenderer != null || _renderMode == PieceRenderMode.ImportedMesh;
             _targetPosition = hasMesh ? newPosition : newPosition + Vector3.up * 0.5f;
-            _isMoving = true;
-            _moveProgress = 0f;
-            
-            // Update original position for future drags
             _originalPosition = _targetPosition;
-            
-            _importedMoveClip?.Play();
-            Debug.Log($"[UnitRenderer] MoveTo: from {_startPosition} to {_targetPosition}");
+            _isMoving = true;
+            _onMeleeStrike = onMeleeStrike;
+            _meleeStrikeFired = false;
+            _meleeUsingPunch = false;
+
+            if (playAttack)
+            {
+                Vector3 approach = GetApproachPosition(_startPosition, _targetPosition, _meleeStopShort);
+                _meleePhase = MeleePhase.Approach;
+                BeginTravelSegment(_startPosition, approach);
+                _importedClips?.PlayMove();
+            }
+            else
+            {
+                _meleePhase = MeleePhase.None;
+                BeginTravelSegment(_startPosition, _targetPosition);
+                _importedClips?.PlayMove();
+            }
+
+            Debug.Log($"[UnitRenderer] MoveTo: from {_startPosition} to {_targetPosition}, attack={playAttack}");
+        }
+
+        public void SetOnMeleeStrike(System.Action callback)
+        {
+            if (_meleeStrikeFired)
+            {
+                callback?.Invoke();
+                return;
+            }
+
+            _onMeleeStrike = callback;
+        }
+
+        private void BeginTravelSegment(Vector3 from, Vector3 to)
+        {
+            _startPosition = from;
+            _segmentEnd = to;
+            _moveProgress = 0f;
+            float dist = Vector3.Distance(
+                new Vector3(from.x, 0f, from.z),
+                new Vector3(to.x, 0f, to.z));
+            _segmentDuration = _meleePhase == MeleePhase.None
+                ? 1f / Mathf.Max(_moveSpeed, 0.01f)
+                : Mathf.Max(dist / Mathf.Max(_moveSpeed, 0.01f), 0.04f);
+        }
+
+        private static Vector3 GetApproachPosition(Vector3 start, Vector3 target, float stopShort)
+        {
+            Vector3 delta = target - start;
+            float dist = new Vector3(delta.x, 0f, delta.z).magnitude;
+            if (dist <= 0.001f)
+                return start;
+
+            float stop = Mathf.Min(Mathf.Max(stopShort, 0f), dist * 0.5f);
+            float t = (dist - stop) / dist;
+            return Vector3.Lerp(start, target, t);
+        }
+
+        private void UpdateTravel()
+        {
+            if (_meleePhase == MeleePhase.Attack)
+                return;
+
+            _moveProgress += Time.deltaTime / Mathf.Max(_segmentDuration, 0.0001f);
+            if (_moveProgress >= 1f)
+            {
+                transform.position = _segmentEnd;
+                if (_meleePhase == MeleePhase.Approach)
+                    BeginMeleeAttack();
+                else
+                    CompleteTravel();
+                return;
+            }
+
+            Vector3 currentPos = Vector3.Lerp(_startPosition, _segmentEnd, _moveProgress);
+            if (_importedClips == null || !_importedClips.IsPlaying)
+                currentPos.y += Mathf.Sin(_moveProgress * Mathf.PI) * _bounceHeight;
+            transform.position = currentPos;
+        }
+
+        private void BeginMeleeAttack()
+        {
+            _meleePhase = MeleePhase.Attack;
+
+            if (_importedClips != null && _importedClips.HasAttackClip)
+            {
+                _importedClips.PlayAttack();
+                return;
+            }
+
+            _meleeUsingPunch = true;
+            _meleePunchEndTime = Time.time + 0.2f;
+            StartCoroutine(AttackAnimationCoroutine());
+        }
+
+        private bool IsMeleeAttackFinished()
+        {
+            if (_meleeUsingPunch)
+                return Time.time >= _meleePunchEndTime;
+
+            return _importedClips == null || !_importedClips.IsPlaying;
+        }
+
+        private void BeginMeleeFinish()
+        {
+            FireMeleeStrike();
+            _meleePhase = MeleePhase.Finish;
+            _meleeUsingPunch = false;
+            BeginTravelSegment(transform.position, _targetPosition);
+            _importedClips?.PlayMove();
+        }
+
+        private void CompleteTravel()
+        {
+            transform.position = _targetPosition;
+            _isMoving = false;
+            _meleePhase = MeleePhase.None;
+            _importedClips?.NotifyTravelFinished();
+            Debug.Log($"[UnitRenderer] Movement complete at {_targetPosition}");
+        }
+
+        private void FireMeleeStrike()
+        {
+            if (_meleeStrikeFired)
+                return;
+
+            _meleeStrikeFired = true;
+            _onMeleeStrike?.Invoke();
+            _onMeleeStrike = null;
         }
 
         private void Update()
         {
+            if (_isDying)
+                return;
+
             // Handle returning to original position after failed drag
             if (_isReturning)
             {
@@ -512,32 +649,16 @@ namespace BizarreChess.Presentation.UnitRenderer
                 return;
             }
             
-            // Handle normal movement animation
             if (_isMoving)
-            {
-                _moveProgress += Time.deltaTime * _moveSpeed;
-                
-                if (_moveProgress >= 1f)
-                {
-                    transform.position = _targetPosition;
-                    _isMoving = false;
-                    _importedMoveClip?.NotifyTravelFinished();
-                    Debug.Log($"[UnitRenderer] Movement complete at {_targetPosition}");
-                }
-                else
-                {
-                    Vector3 currentPos = Vector3.Lerp(_startPosition, _targetPosition, _moveProgress);
-                    bool useImportedClip = _importedMoveClip != null && _importedMoveClip.HasClip;
-                    if (!useImportedClip)
-                    {
-                        float bounce = Mathf.Sin(_moveProgress * Mathf.PI) * _bounceHeight;
-                        currentPos.y += bounce;
-                    }
-                    transform.position = currentPos;
-                }
-            }
+                UpdateTravel();
 
-            _importedMoveClip?.Tick(Time.deltaTime);
+            _importedClips?.Tick(Time.deltaTime);
+
+            if (_isMoving && _meleePhase == MeleePhase.Attack && IsMeleeAttackFinished())
+                BeginMeleeFinish();
+
+            if (_awaitingImportedAttack && (_importedClips == null || !_importedClips.IsPlaying))
+                FinishAttackComplete();
             
             // Forcefield handled by shader animation, no per-frame update needed
 
@@ -566,7 +687,9 @@ namespace BizarreChess.Presentation.UnitRenderer
             _isDragging = true;
             _isMoving = false;
             _isReturning = false;
-            _importedMoveClip?.Stop();
+            _meleePhase = MeleePhase.None;
+            _onMeleeStrike = null;
+            _importedClips?.Stop();
             _originalPosition = transform.position;
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
@@ -591,7 +714,9 @@ namespace BizarreChess.Presentation.UnitRenderer
             _isDragging = true;
             _isMoving = false;
             _isReturning = false;
-            _importedMoveClip?.Stop();
+            _meleePhase = MeleePhase.None;
+            _onMeleeStrike = null;
+            _importedClips?.Stop();
             _originalPosition = transform.position;
             _originalScale = transform.localScale;
             _currentLiftProgress = 0f;
@@ -975,10 +1100,49 @@ namespace BizarreChess.Presentation.UnitRenderer
             }
         }
 
-        public void PlayAttackAnimation()
+        public void PlayAttackAnimation(System.Action onComplete = null)
         {
-            // Simple scale punch animation
-            StartCoroutine(AttackAnimationCoroutine());
+            _onAttackComplete = onComplete;
+            _awaitingAttackComplete = true;
+
+            if (_importedClips != null && _importedClips.HasAttackClip)
+            {
+                _awaitingImportedAttack = true;
+                _importedClips.PlayAttack();
+                return;
+            }
+
+            _awaitingImportedAttack = false;
+            StartCoroutine(AttackThenComplete());
+        }
+
+        public void SetOnAttackComplete(System.Action callback)
+        {
+            if (!_awaitingAttackComplete)
+            {
+                callback?.Invoke();
+                return;
+            }
+
+            _onAttackComplete = callback;
+        }
+
+        private System.Collections.IEnumerator AttackThenComplete()
+        {
+            yield return AttackAnimationCoroutine();
+            FinishAttackComplete();
+        }
+
+        private void FinishAttackComplete()
+        {
+            if (!_awaitingAttackComplete)
+                return;
+
+            _awaitingAttackComplete = false;
+            _awaitingImportedAttack = false;
+            var callback = _onAttackComplete;
+            _onAttackComplete = null;
+            callback?.Invoke();
         }
 
         private System.Collections.IEnumerator AttackAnimationCoroutine()
@@ -1011,25 +1175,101 @@ namespace BizarreChess.Presentation.UnitRenderer
 
         public void PlayDeathAnimation()
         {
+            if (_isDying)
+                return;
+
+            _isDying = true;
+            _isMoving = false;
+            _meleePhase = MeleePhase.None;
+            _importedClips?.Stop();
+
+            var collider = GetComponent<Collider>();
+            if (collider != null)
+                collider.enabled = false;
+
             StartCoroutine(DeathAnimationCoroutine());
         }
 
         private System.Collections.IEnumerator DeathAnimationCoroutine()
         {
-            float duration = 0.5f;
-            float elapsed = 0f;
-            Vector3 startScale = transform.localScale;
+            Vector3 startPos = transform.position;
+            Quaternion startRot = transform.rotation;
 
-            while (elapsed < duration)
+            Vector3 facing = transform.forward;
+            facing.y = 0f;
+            if (facing.sqrMagnitude < 0.0001f)
+                facing = Vector3.forward;
+            facing.Normalize();
+
+            Vector3 fallDir = -facing;
+            Vector3 right = Vector3.Cross(Vector3.up, facing);
+            if (right.sqrMagnitude < 0.0001f)
+                right = Vector3.right;
+            right.Normalize();
+
+            float side = Random.value < 0.5f ? -1f : 1f;
+            float rollDeg = Random.Range(28f, 78f);
+            float height = EstimateVisualHeight();
+
+            Quaternion afterTip = Quaternion.AngleAxis(86f, right) * startRot;
+            Quaternion endRot = Quaternion.AngleAxis(rollDeg * side, fallDir) * afterTip;
+
+            Vector3 liePos = startPos + fallDir * (height * 0.42f);
+            liePos.y = startPos.y + 0.02f;
+            Vector3 endPos = liePos + right * side * Random.Range(0.14f, 0.34f);
+
+            float fallDur = 0.38f;
+            float rollDur = 0.34f;
+            float fadeDur = 0.42f;
+
+            float elapsed = 0f;
+            while (elapsed < fallDur)
             {
-                float t = elapsed / duration;
-                transform.localScale = Vector3.Lerp(startScale, Vector3.zero, t);
-                SetAlpha(1f - t);
+                float u = elapsed / fallDur;
+                float ease = u * u;
+                transform.rotation = Quaternion.Slerp(startRot, afterTip, ease);
+                transform.position = Vector3.Lerp(startPos, liePos, ease);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            transform.rotation = afterTip;
+            transform.position = liePos;
+
+            elapsed = 0f;
+            while (elapsed < rollDur)
+            {
+                float u = Mathf.SmoothStep(0f, 1f, elapsed / rollDur);
+                transform.rotation = Quaternion.Slerp(afterTip, endRot, u);
+                transform.position = Vector3.Lerp(liePos, endPos, u);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            transform.rotation = endRot;
+            transform.position = endPos;
+
+            elapsed = 0f;
+            while (elapsed < fadeDur)
+            {
+                SetAlpha(1f - elapsed / fadeDur);
                 elapsed += Time.deltaTime;
                 yield return null;
             }
 
             gameObject.SetActive(false);
+        }
+
+        private float EstimateVisualHeight()
+        {
+            if (ImportedMeshGenerator.TryGetVisualWorldBounds(transform, out Bounds bounds) && bounds.size.y > 0.15f)
+                return bounds.size.y;
+
+            var box = GetComponent<BoxCollider>();
+            if (box != null)
+                return Mathf.Max(box.size.y * transform.lossyScale.y, 0.35f);
+
+            return 0.7f;
         }
 
         #region Forcefield

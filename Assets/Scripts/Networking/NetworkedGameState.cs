@@ -35,7 +35,7 @@ namespace BizarreChess.Networking
         private MoveValidator _moveValidator;
 
         // Events
-        public System.Action<int, int, int, bool> OnUnitMoved; // unitId, fromNode, toNode, isRangedCapture
+        public System.Action<int, int, int, bool, bool> OnUnitMoved; // unitId, fromNode, toNode, isRangedCapture, isCapture
         public System.Action<int> OnUnitCaptured; // unitId
         public System.Action<int, int, int> OnCaptureBlocked; // attackerUnitId, defenderUnitId, fromNode (attacker bounces back)
         public System.Action OnTurnChanged;
@@ -327,7 +327,7 @@ namespace BizarreChess.Networking
             else
             {
                 // Normal move - notify all clients
-                BroadcastMoveClientRpc(unitId, result.FromNode, result.ToNode, result.IsRangedCapture);
+                BroadcastMoveClientRpc(unitId, result.FromNode, result.ToNode, result.IsRangedCapture, result.IsCapture);
 
                 if (result.IsCapture && result.CapturedUnitId.HasValue)
                 {
@@ -540,9 +540,9 @@ namespace BizarreChess.Networking
         #region Server -> Client Broadcasts
 
         [ClientRpc]
-        private void BroadcastMoveClientRpc(int unitId, int fromNode, int toNode, bool isRangedCapture = false)
+        private void BroadcastMoveClientRpc(int unitId, int fromNode, int toNode, bool isRangedCapture = false, bool isCapture = false)
         {
-            Debug.Log($"[NetworkedGameState] BroadcastMove received: Unit {unitId} from {fromNode} to {toNode}, isRangedCapture={isRangedCapture}");
+            Debug.Log($"[NetworkedGameState] BroadcastMove received: Unit {unitId} from {fromNode} to {toNode}, isRangedCapture={isRangedCapture}, isCapture={isCapture}");
             
             // Update local game state on clients (server already updated)
             if (!IsServer && _gameState != null)
@@ -560,7 +560,7 @@ namespace BizarreChess.Networking
                 }
             }
             
-            OnUnitMoved?.Invoke(unitId, fromNode, toNode, isRangedCapture);
+            OnUnitMoved?.Invoke(unitId, fromNode, toNode, isRangedCapture, isCapture);
         }
 
         [ClientRpc]

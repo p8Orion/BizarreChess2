@@ -128,35 +128,73 @@ namespace BizarreChess.Presentation
             }
         }
 
+        private static readonly string[] RockResourcePaths =
+        {
+            "Terrain/rock_01",
+            "Terrain/rock_02",
+            "Terrain/rock_03"
+        };
+
         /// <summary>
-        /// Creates a wall mesh on top of an Impassable tile.
-        /// Walls extend toward adjacent Impassable tiles to create continuous barriers.
+        /// Places an alternating rock model on an Impassable tile.
+        /// Rocks are parented to the board (not the scaled tile cube) so they keep their shape.
         /// </summary>
         private void CreateWallOnTile(GameObject parentTile, NodeDefinition nodeDef, TileStyle style)
         {
+            var path = RockResourcePaths[Mathf.Abs(nodeDef.Id) % RockResourcePaths.Length];
+            var prefab = Resources.Load<GameObject>(path);
+            if (prefab != null)
+            {
+                var rock = Instantiate(prefab, transform);
+                rock.name = $"Rock_{nodeDef.Id}";
+                Vector3 tilePos = GetTilePosition(nodeDef.Position);
+                rock.transform.localPosition = new Vector3(tilePos.x, 0f, tilePos.z);
+                rock.transform.localRotation = Quaternion.Euler(0f, (nodeDef.Id % 4) * 90f, 0f);
+                FitRockToTile(rock, 0.88f, 1.35f);
+                foreach (var col in rock.GetComponentsInChildren<Collider>())
+                    col.enabled = false;
+                return;
+            }
+
             var wallGo = new GameObject("Wall");
             wallGo.transform.SetParent(parentTile.transform);
-            
-            // Position wall on top of tile (tile top is at local y=0.5 due to cube scaling)
             wallGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
             wallGo.transform.localRotation = Quaternion.identity;
             wallGo.transform.localScale = Vector3.one;
-            
             var meshFilter = wallGo.AddComponent<MeshFilter>();
             var meshRenderer = wallGo.AddComponent<MeshRenderer>();
-            
-            // Detect adjacent Impassable tiles
             var neighbors = GetImpassableNeighbors(nodeDef);
-            
-            // Create wall mesh that extends toward neighbors
-            float wallHeight = 2.4f;  // Wall height (tall barrier)
-            float baseSize = 0.25f;   // Base wall size (smaller, extends to 0.5 when neighbors exist)
-            meshFilter.mesh = CreateWallMesh(baseSize, wallHeight, neighbors);
-            
-            // Use same material as tile but slightly darker for depth
+            meshFilter.mesh = CreateWallMesh(0.25f, 2.4f, neighbors);
             var wallMat = CreateTileMaterial(style);
             wallMat.color = style.Color * 0.85f;
             meshRenderer.material = wallMat;
+        }
+
+        private static void FitRockToTile(GameObject rock, float footprint, float maxHeight)
+        {
+            var renderers = rock.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return;
+
+            Bounds bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                bounds.Encapsulate(renderers[i].bounds);
+
+            float span = Mathf.Max(bounds.size.x, bounds.size.z);
+            float scale = span > 0.0001f ? footprint / span : 1f;
+            if (bounds.size.y * scale > maxHeight)
+                scale = maxHeight / bounds.size.y;
+
+            rock.transform.localScale *= scale;
+
+            bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                bounds.Encapsulate(renderers[i].bounds);
+
+            Vector3 pos = rock.transform.position;
+            pos.x += rock.transform.position.x - bounds.center.x;
+            pos.z += rock.transform.position.z - bounds.center.z;
+            pos.y += rock.transform.position.y - bounds.min.y;
+            rock.transform.position = pos;
         }
 
         /// <summary>

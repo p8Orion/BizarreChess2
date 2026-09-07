@@ -5,35 +5,44 @@ using UnityEngine;
 namespace BizarreChess.Presentation.UnitRenderer
 {
     /// <summary>
-    /// Plays a GLB clip named Move or *_Move while the piece travels.
-    /// Pieces without that clip are ignored.
+    /// Plays GLB clips named Move / *_Move and Attack / *_Attack.
+    /// Pieces without those clips are ignored.
     /// </summary>
-    public sealed class ImportedMoveClipPlayer
+    public sealed class ImportedPieceClipPlayer
     {
-        public const string GenericClipName = "Move";
+        public const string MoveClipName = "Move";
+        public const string AttackClipName = "Attack";
 
         private readonly GameObject _root;
-        private readonly AnimationClip _clip;
+        private readonly AnimationClip _moveClip;
+        private readonly AnimationClip _attackClip;
+        private AnimationClip _activeClip;
         private bool _playing;
         private bool _loopWhileTraveling;
+        private bool _resetWhenDone;
         private float _time;
 
-        public bool HasClip => _clip != null;
+        public bool HasMoveClip => _moveClip != null;
+        public bool HasAttackClip => _attackClip != null;
+        public bool IsPlaying => _playing;
 
-        private ImportedMoveClipPlayer(GameObject root, AnimationClip clip)
+        private ImportedPieceClipPlayer(GameObject root, AnimationClip moveClip, AnimationClip attackClip)
         {
             _root = root;
-            _clip = clip;
+            _moveClip = moveClip;
+            _attackClip = attackClip;
         }
 
-        public static ImportedMoveClipPlayer TryCreate(Transform pieceRoot, GameObject modelPrefab)
+        public static ImportedPieceClipPlayer TryCreate(Transform pieceRoot, GameObject modelPrefab)
         {
             if (pieceRoot == null)
                 return null;
 
             GameObject clipRoot = FindClipRoot(pieceRoot.gameObject);
-            AnimationClip clip = FindMoveClip(clipRoot, modelPrefab);
-            if (clip == null || clipRoot == null)
+            var clips = CollectAllClips(clipRoot, modelPrefab);
+            AnimationClip move = ResolveNamedClip(clips, MoveClipName);
+            AnimationClip attack = ResolveNamedClip(clips, AttackClipName, allowSingleFallback: false);
+            if ((move == null && attack == null) || clipRoot == null)
                 return null;
 
             var legacy = clipRoot.GetComponent<Animation>();
@@ -48,19 +57,22 @@ namespace BizarreChess.Presentation.UnitRenderer
             if (animator != null)
                 animator.enabled = false;
 
-            Debug.Log($"[ImportedMoveClip] {clipRoot.name} move clip '{clip.name}' ({clip.length:0.00}s)");
-            return new ImportedMoveClipPlayer(clipRoot, clip);
+            if (move != null)
+                Debug.Log($"[ImportedPieceClip] {clipRoot.name} move '{move.name}' ({move.length:0.00}s)");
+            if (attack != null)
+                Debug.Log($"[ImportedPieceClip] {clipRoot.name} attack '{attack.name}' ({attack.length:0.00}s)");
+
+            return new ImportedPieceClipPlayer(clipRoot, move, attack);
         }
 
-        public void Play()
+        public void PlayMove()
         {
-            if (_clip == null || _root == null)
-                return;
+            Play(_moveClip, loopWhileTraveling: true, resetWhenDone: false);
+        }
 
-            _playing = true;
-            _loopWhileTraveling = true;
-            _time = 0f;
-            _clip.SampleAnimation(_root, 0f);
+        public void PlayAttack()
+        {
+            Play(_attackClip, loopWhileTraveling: false, resetWhenDone: true);
         }
 
         public void NotifyTravelFinished()
@@ -69,31 +81,33 @@ namespace BizarreChess.Presentation.UnitRenderer
             if (!_playing)
                 return;
 
-            if (_clip == null || _clip.length <= 0f || _time >= _clip.length)
-                Stop(resetToStart: false);
+            if (_activeClip == null || _activeClip.length <= 0f || _time >= _activeClip.length)
+                Stop(resetToStart: _resetWhenDone);
         }
 
         public void Stop(bool resetToStart = true)
         {
-            if (_clip == null || _root == null)
+            if (_activeClip == null || _root == null)
             {
                 _playing = false;
+                _activeClip = null;
                 return;
             }
 
+            float sampleTime = resetToStart || _activeClip.length <= 0f ? 0f : _activeClip.length;
+            _activeClip.SampleAnimation(_root, sampleTime);
             _playing = false;
             _loopWhileTraveling = false;
-            float sampleTime = resetToStart || _clip.length <= 0f ? 0f : _clip.length;
-            _clip.SampleAnimation(_root, sampleTime);
+            _activeClip = null;
             _time = sampleTime;
         }
 
         public void Tick(float deltaTime)
         {
-            if (!_playing || _clip == null || _root == null)
+            if (!_playing || _activeClip == null || _root == null)
                 return;
 
-            float length = _clip.length;
+            float length = _activeClip.length;
             if (length <= 0f)
             {
                 Stop(resetToStart: true);
@@ -107,12 +121,25 @@ namespace BizarreChess.Presentation.UnitRenderer
                     _time %= length;
                 else
                 {
-                    Stop(resetToStart: false);
+                    Stop(resetToStart: _resetWhenDone);
                     return;
                 }
             }
 
-            _clip.SampleAnimation(_root, _time);
+            _activeClip.SampleAnimation(_root, _time);
+        }
+
+        private void Play(AnimationClip clip, bool loopWhileTraveling, bool resetWhenDone)
+        {
+            if (clip == null || _root == null)
+                return;
+
+            _activeClip = clip;
+            _playing = true;
+            _loopWhileTraveling = loopWhileTraveling;
+            _resetWhenDone = resetWhenDone;
+            _time = 0f;
+            clip.SampleAnimation(_root, 0f);
         }
 
         private static GameObject FindClipRoot(GameObject pieceRoot)
@@ -130,15 +157,13 @@ namespace BizarreChess.Presentation.UnitRenderer
                 : pieceRoot;
         }
 
-        private static AnimationClip FindMoveClip(GameObject clipRoot, GameObject modelPrefab)
+        private static List<AnimationClip> CollectAllClips(GameObject clipRoot, GameObject modelPrefab)
         {
             var clips = new List<AnimationClip>();
             CollectClips(clipRoot, clips);
-
             if (modelPrefab != null)
                 CollectResourceClips(modelPrefab.name, clips);
-
-            return ResolveMoveClip(clips);
+            return clips;
         }
 
         private static void CollectClips(GameObject clipRoot, List<AnimationClip> clips)
@@ -206,7 +231,10 @@ namespace BizarreChess.Presentation.UnitRenderer
             clips.Add(clip);
         }
 
-        private static AnimationClip ResolveMoveClip(List<AnimationClip> clips)
+        private static AnimationClip ResolveNamedClip(
+            List<AnimationClip> clips,
+            string genericName,
+            bool allowSingleFallback = true)
         {
             AnimationClip exact = null;
             AnimationClip suffix = null;
@@ -224,12 +252,12 @@ namespace BizarreChess.Presentation.UnitRenderer
                 only = clip;
                 string name = clip.name;
 
-                if (name.Equals(GenericClipName, StringComparison.OrdinalIgnoreCase))
+                if (name.Equals(genericName, StringComparison.OrdinalIgnoreCase))
                     exact = clip;
-                else if (name.EndsWith("_" + GenericClipName, StringComparison.OrdinalIgnoreCase)
-                         || name.EndsWith("." + GenericClipName, StringComparison.OrdinalIgnoreCase))
+                else if (name.EndsWith("_" + genericName, StringComparison.OrdinalIgnoreCase)
+                         || name.EndsWith("." + genericName, StringComparison.OrdinalIgnoreCase))
                     suffix ??= clip;
-                else if (name.IndexOf(GenericClipName, StringComparison.OrdinalIgnoreCase) >= 0)
+                else if (name.IndexOf(genericName, StringComparison.OrdinalIgnoreCase) >= 0)
                     contains ??= clip;
             }
 
@@ -240,7 +268,7 @@ namespace BizarreChess.Presentation.UnitRenderer
             if (contains != null)
                 return contains;
 
-            return count == 1 ? only : null;
+            return allowSingleFallback && count == 1 ? only : null;
         }
     }
 }

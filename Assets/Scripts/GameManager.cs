@@ -120,6 +120,8 @@ namespace BizarreChess
         private Dictionary<int, UnitRendererType> _unitRenderers = new Dictionary<int, UnitRendererType>();
         private Dictionary<string, ItemRenderer> _itemRenderers = new Dictionary<string, ItemRenderer>();
         private Transform _itemsContainer;
+        private UnitRendererType _pendingMeleeAttacker;
+        private UnitRendererType _pendingRangedAttacker;
 
         // Selection
         private int? _selectedUnitId;
@@ -321,34 +323,52 @@ namespace BizarreChess
             }
         }
 
-        private void OnNetworkUnitMoved(int unitId, int fromNode, int toNode, bool isRangedCapture)
+        private void OnNetworkUnitMoved(int unitId, int fromNode, int toNode, bool isRangedCapture, bool isCapture)
         {
-
-            
-            // Only move visually if NOT a ranged capture (ranged attackers stay in place)
-            if (!isRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
+            _pendingMeleeAttacker = null;
+            _pendingRangedAttacker = null;
+            if (!_unitRenderers.TryGetValue(unitId, out var renderer))
             {
-                var position = GetWorldPosition(toNode);
-
-                renderer.MoveTo(position);
+                ClearSelection();
+                return;
             }
-            else if (isRangedCapture)
-            {
 
+            if (isRangedCapture)
+            {
+                renderer.PlayAttackAnimation();
+                if (isCapture)
+                    _pendingRangedAttacker = renderer;
             }
             else
             {
-
+                renderer.MoveTo(GetWorldPosition(toNode), playAttack: isCapture);
+                if (isCapture)
+                    _pendingMeleeAttacker = renderer;
             }
+
             ClearSelection();
         }
 
         private void OnNetworkUnitCaptured(int unitId)
         {
-            if (_unitRenderers.TryGetValue(unitId, out var renderer))
+            if (!_unitRenderers.TryGetValue(unitId, out var renderer))
+                return;
+
+            if (_pendingMeleeAttacker != null)
             {
-                renderer.PlayDeathAnimation();
+                _pendingMeleeAttacker.SetOnMeleeStrike(renderer.PlayDeathAnimation);
+                _pendingMeleeAttacker = null;
+                return;
             }
+
+            if (_pendingRangedAttacker != null)
+            {
+                _pendingRangedAttacker.SetOnAttackComplete(renderer.PlayDeathAnimation);
+                _pendingRangedAttacker = null;
+                return;
+            }
+
+            renderer.PlayDeathAnimation();
         }
 
         private void OnNetworkCaptureBlocked(int attackerUnitId, int defenderUnitId, int fromNode)
@@ -1468,14 +1488,9 @@ namespace BizarreChess
             }
             else
             {
-                // Handle capture visually (only if not blocked)
+                UnitRendererType capturedRenderer = null;
                 if (result.IsCapture && result.CapturedUnitId.HasValue)
-                {
-                    if (_unitRenderers.TryGetValue(result.CapturedUnitId.Value, out var capturedRenderer))
-                    {
-                        capturedRenderer.PlayDeathAnimation();
-                    }
-                }
+                    _unitRenderers.TryGetValue(result.CapturedUnitId.Value, out capturedRenderer);
 
                 // Handle item drop from captured unit
                 if (!string.IsNullOrEmpty(result.DroppedItemId) && result.DroppedItemNodeId.HasValue)
@@ -1488,10 +1503,25 @@ namespace BizarreChess
                     }
                 }
 
-                // Animate - only move visually if NOT a ranged capture and NOT blocked
-                if (!result.IsRangedCapture && _unitRenderers.TryGetValue(unitId, out var renderer))
+                if (_unitRenderers.TryGetValue(unitId, out var renderer))
                 {
-                    renderer.MoveTo(GetWorldPosition(result.ToNode));
+                    if (result.IsRangedCapture)
+                    {
+                        renderer.PlayAttackAnimation(capturedRenderer != null
+                            ? capturedRenderer.PlayDeathAnimation
+                            : null);
+                    }
+                    else
+                    {
+                        System.Action strike = capturedRenderer != null
+                            ? capturedRenderer.PlayDeathAnimation
+                            : null;
+                        renderer.MoveTo(GetWorldPosition(result.ToNode), playAttack: result.IsCapture, onMeleeStrike: strike);
+                    }
+                }
+                else if (capturedRenderer != null)
+                {
+                    capturedRenderer.PlayDeathAnimation();
                 }
             }
 

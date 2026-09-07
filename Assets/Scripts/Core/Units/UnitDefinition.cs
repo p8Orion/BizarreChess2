@@ -62,7 +62,7 @@ namespace BizarreChess.Core.Units
         /// Optional Blender FBX/OBJ/GLB/prefab for ImportedMesh mode.
         /// Drop the file in Resources/Pieces/Models/ named like the piece (King, Queen, ...).
         /// Model should sit on Y=0, face +Z (towards the opponent for player 0).
-        /// Optional travel clip: name it Move or *_Move (e.g. Lancer_Move).
+        /// Optional clips: Move / *_Move for travel, Attack / *_Attack for captures (including ranged).
         /// </summary>
         public GameObject ImportedModel;
         /// <summary>
