@@ -134,16 +134,31 @@ export class Board {
   }
 }
 
-function spawnZones(width: number, height: number): BoardDefinition["spawn"] {
+function spawnZones(
+  width: number,
+  height: number,
+  nodes?: { type?: NodeType; currentType?: NodeType }[]
+): BoardDefinition["spawn"] {
+  const keep = (id: number) => {
+    if (!nodes) return true;
+    const node = nodes[id];
+    if (!node) return false;
+    const type = node.currentType ?? node.type;
+    return type !== NodeType.Destroyed;
+  };
   const p1Back: number[] = [];
   const p1Front: number[] = [];
   const p2Back: number[] = [];
   const p2Front: number[] = [];
   for (let x = 0; x < width; x++) {
-    p1Back.push(x);
-    p1Front.push(width + x);
-    p2Front.push((height - 2) * width + x);
-    p2Back.push((height - 1) * width + x);
+    const back1 = x;
+    const front1 = width + x;
+    const front2 = (height - 2) * width + x;
+    const back2 = (height - 1) * width + x;
+    if (keep(back1)) p1Back.push(back1);
+    if (keep(front1)) p1Front.push(front1);
+    if (keep(front2)) p2Front.push(front2);
+    if (keep(back2)) p2Back.push(back2);
   }
   return [
     { back: p1Back, front: p1Front },
@@ -220,7 +235,7 @@ function finishBoard(
     layout: "square",
     nodes,
     edges: eightWayEdges(width, height, exists),
-    spawn: spawnZones(width, height),
+    spawn: spawnZones(width, height, nodes),
   };
 }
 
@@ -286,6 +301,48 @@ export function createCapablancaBoard(): BoardDefinition {
 /** Narrow corridor for mini armies (4 pieces + 4 pawns, empty flanks). */
 export function createLaneBoard(width = 6, height = 12): BoardDefinition {
   return createRectangularBoard(width, height, `lane_${width}x${height}`, `Lane — ${width}×${height}`);
+}
+
+const LANE11_WIDTH = 10;
+const LANE11_HEIGHT = 11;
+const LANE11_CORRIDOR = 6;
+
+/** 6-wide ends; 5 central rows open to 8; the 6th row opens to 10. */
+function lane11RowWidth(y: number): number {
+  if (y === 5) return 10;
+  if (y >= 3 && y <= 7) return 8;
+  return LANE11_CORRIDOR;
+}
+
+function lane11Col0(y: number): number {
+  return Math.floor((LANE11_WIDTH - lane11RowWidth(y)) / 2);
+}
+
+export function lane11BorderTiles(width = LANE11_WIDTH, height = LANE11_HEIGHT): number[] {
+  const corridor0 = Math.floor((width - LANE11_CORRIDOR) / 2);
+  const corridor1 = corridor0 + LANE11_CORRIDOR;
+  const tiles: number[] = [];
+  for (let y = 0; y < height; y++) {
+    const span = lane11RowWidth(y);
+    const x0 = Math.floor((width - span) / 2);
+    for (let x = x0; x < x0 + span; x++) {
+      if (x < corridor0 || x >= corridor1) tiles.push(y * width + x);
+    }
+  }
+  return tiles;
+}
+
+/** Lane 6×11 with a mid-board bulge. Extra wing tiles host items. */
+export function createLane11Board(): BoardDefinition {
+  const width = LANE11_WIDTH;
+  const height = LANE11_HEIGHT;
+  const nodes = gridNodes(width, height, (_id, x, y) => {
+    const x0 = lane11Col0(y);
+    return x >= x0 && x < x0 + lane11RowWidth(y) ? NodeType.Normal : NodeType.Destroyed;
+  });
+  const board = finishBoard("lane_10x11_bulge", "Lane — 6×11 wide center", width, height, nodes);
+  board.itemSpawnTiles = lane11BorderTiles(width, height);
+  return board;
 }
 
 function mulberry32(seed: number): () => number {
@@ -391,6 +448,7 @@ export function createBoardWithHoles(
 }
 
 export const BOARD_OPTIONS: { id: BoardKind; label: string }[] = [
+  { id: "lane11", label: "Lane — 6×11 wide center" },
   { id: "lane12-terrain", label: "Lane — 6×12 pits & mountains" },
   { id: "lane10-terrain", label: "Lane — 6×10 pits & mountains" },
   { id: "bizarre", label: "Bizarre — 8×8 pits & walls" },
@@ -403,7 +461,7 @@ export const BOARD_OPTIONS: { id: BoardKind; label: string }[] = [
   { id: "holes", label: "Holes — 8×8 irregular" },
 ];
 
-export function createBoardByKind(kind: BoardKind = "bizarre", seed?: number): BoardDefinition {
+export function createBoardByKind(kind: BoardKind = "lane11", seed?: number): BoardDefinition {
   switch (kind) {
     case "classic":
       return createClassicBoard();
@@ -424,8 +482,10 @@ export function createBoardByKind(kind: BoardKind = "bizarre", seed?: number): B
     case "lane":
       return createLaneBoard(6, 12);
     case "bizarre":
-    default:
       return createBoardWithTerrain(8, 8, 5, 5, seed);
+    case "lane11":
+    default:
+      return createLane11Board();
   }
 }
 
@@ -462,6 +522,9 @@ export function definitionFromPublic(state: {
       };
     }),
     edges: state.edges,
-    spawn: layout === "hex-offset" ? hexSpawnZones(state.width, state.height) : spawnZones(state.width, state.height),
+    spawn:
+      layout === "hex-offset"
+        ? hexSpawnZones(state.width, state.height)
+        : spawnZones(state.width, state.height, state.nodes),
   };
 }

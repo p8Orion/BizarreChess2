@@ -183,7 +183,8 @@ export type BoardKind =
   | "lane"
   | "lane10"
   | "lane10-terrain"
-  | "lane12-terrain";
+  | "lane12-terrain"
+  | "lane11";
 
 export function isPassable(node: NodeState): boolean {
   return (
@@ -212,6 +213,8 @@ export interface BoardDefinition {
   nodes: NodeDef[];
   edges: EdgeDef[];
   spawn: { back: number[]; front: number[] }[];
+  /** If set, board items spawn on these tiles instead of the usual center homes. */
+  itemSpawnTiles?: number[];
 }
 
 export interface MoveTargets {

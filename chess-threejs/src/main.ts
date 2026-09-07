@@ -160,7 +160,7 @@ function persistLocalRoster(): void {
 
 function boardKind(): BoardKind {
   const value = boardEl.value;
-  return BOARD_OPTIONS.some((option) => option.id === value) ? (value as BoardKind) : "bizarre";
+  return BOARD_OPTIONS.some((option) => option.id === value) ? (value as BoardKind) : "lane11";
 }
 
 function fillPatternSelect(el: HTMLSelectElement, selected: PlayerStyle["pattern"]): void {
@@ -757,7 +757,7 @@ document.querySelector("#btn-join")!.addEventListener("click", () => void joinOn
 document.querySelector("#btn-resign")!.addEventListener("click", resign);
 
 refreshArmySelect();
-fillSelect(boardEl, BOARD_OPTIONS, "lane12-terrain");
+fillSelect(boardEl, BOARD_OPTIONS, "lane11");
 applyStyleToForm(0, user.style);
 applyStyleToForm(1, user.guestStyle);
 armyEl.addEventListener("change", () => {

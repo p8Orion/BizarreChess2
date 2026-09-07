@@ -138,7 +138,7 @@ export class Game {
   constructor(
     army: Slot[] | ArmyDef | ArmySpec = BIZARRE_ARMY,
     colors?: unknown,
-    boardKind: BoardKind = "bizarre",
+    boardKind: BoardKind = "lane11",
     opponentArmy?: Slot[] | ArmyDef | ArmySpec
   ) {
     this.board = new Board(createBoardByKind(boardKind));
@@ -152,7 +152,8 @@ export class Game {
     this.items = defaultBoardItems(
       (id) => this.board.passable(id),
       this.board.def.width,
-      this.board.def.height
+      this.board.def.height,
+      this.board.def.itemSpawnTiles
     );
     this.phase = GamePhase.Playing;
   }

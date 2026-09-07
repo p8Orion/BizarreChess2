@@ -113,26 +113,38 @@ export function itemHomeTiles(width = 8, height = 8): number[] {
   return [...new Set([a, b, c, d, e])];
 }
 
+function shuffleInPlace<T>(list: T[]): T[] {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
 export function defaultBoardItems(
   passable?: (nodeId: number) => boolean,
   width = 8,
-  height = 8
+  height = 8,
+  preferred?: number[]
 ): ItemState[] {
-  const preferred = itemHomeTiles(width, height);
+  const makers = [createCrossbow, createForceFieldGenerator, createPowderBarrel, createEscapeScroll, createTransmuteScroll];
+  const useWings = !!preferred?.length;
+  const pool = useWings ? shuffleInPlace([...preferred!]) : itemHomeTiles(width, height);
   const chosen: number[] = [];
-  for (const id of preferred) {
+  for (const id of pool) {
+    if (chosen.length >= makers.length) break;
     if (!passable || passable(id)) chosen.push(id);
   }
-  if (chosen.length < 5 && passable) {
+  if (!useWings && chosen.length < makers.length && passable) {
     const midStart = 2 * width;
     const midEnd = (height - 2) * width;
-    for (let id = midStart; id < midEnd && chosen.length < 5; id++) {
+    for (let id = midStart; id < midEnd && chosen.length < makers.length; id++) {
       if (passable(id) && !chosen.includes(id)) chosen.push(id);
     }
   }
-  const tiles = chosen.length > 0 ? chosen : preferred;
-  const makers = [createCrossbow, createForceFieldGenerator, createPowderBarrel, createEscapeScroll, createTransmuteScroll];
-  return tiles.map((id, i) => makers[i % makers.length](id));
+  const tiles = chosen.length > 0 ? chosen : pool.slice(0, makers.length);
+  const assign = useWings ? shuffleInPlace([...makers]) : makers;
+  return tiles.map((id, i) => assign[i % assign.length](id));
 }
 
 export function applyItemPick(unit: UnitState, item: ItemState): void {
