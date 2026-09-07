@@ -5,7 +5,7 @@ import type { ArmyKind } from "../core/pieces";
 import type { BoardKind, ItemState } from "../core/types";
 
 export const USER_STORE_KEY = "bizarre-chess.user.v1";
-export const USER_STORE_VERSION = 3 as const;
+export const USER_STORE_VERSION = 4 as const;
 
 export interface UserSettings {
   autoPickupItems: boolean;
@@ -15,6 +15,9 @@ export interface UserSettings {
   draftBanCount: number;
   draftPickMode: DraftPickModeId;
   draftUniqueness: DraftUniq;
+  itemAmount: number;
+  obstacleAmount: number;
+  symmetricObstacles: boolean;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -25,6 +28,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   draftBanCount: 1,
   draftPickMode: "pieces-first",
   draftUniqueness: "free",
+  itemAmount: 5,
+  obstacleAmount: 5,
+  symmetricObstacles: true,
 };
 
 export interface PersistedItem {

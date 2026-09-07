@@ -4,6 +4,7 @@ import { actionNotice, Game } from "../src/core/gameState";
 import { Draft, normalizeDraftConfig } from "../src/core/draft";
 import { defaultBoardForFormat, type ArmyFormat } from "../src/core/format";
 import { boardSupportsFormat } from "../src/core/board";
+import { normalizeDecorAmounts } from "../src/core/boardDecor";
 import { armyByKind } from "../src/core/pieces";
 import type { BoardKind } from "../src/core/types";
 import type { PlayerStyle } from "../src/core/colors";
@@ -21,6 +22,9 @@ interface Room {
   board: BoardKind;
   colors?: [PlayerStyle, PlayerStyle];
   autoPickupItems: boolean;
+  itemAmount: number;
+  obstacleAmount: number;
+  symmetricObstacles: boolean;
 }
 
 const rooms = new Map<string, Room>();
@@ -67,6 +71,9 @@ function startMatchFromDraft(room: Room): void {
   if (!draft || draft.phase !== "done") return;
   room.game = new Game(draft.toArmy(0), room.colors, room.board, draft.toArmy(1), {
     autoPickupItems: room.autoPickupItems,
+    itemAmount: room.itemAmount,
+    obstacleAmount: room.obstacleAmount,
+    symmetricObstacles: room.symmetricObstacles,
   });
   room.draft = null;
   const message: ServerMessage = { type: "state", state: room.game.toPublic(), notice: "Draft complete" };
@@ -114,6 +121,7 @@ wss.on("connection", (ws) => {
         return;
       }
       const code = makeCode();
+      const scatter = normalizeDecorAmounts(msg);
       if (msg.matchMode === "draft") {
         const format = resolveFormat(msg.format);
         const config = normalizeDraftConfig(msg.draft, format);
@@ -127,6 +135,9 @@ wss.on("connection", (ws) => {
           board: resolveBoard(msg.board, format),
           colors: msg.colors,
           autoPickupItems: msg.autoPickupItems === true,
+          itemAmount: scatter.itemAmount,
+          obstacleAmount: scatter.obstacleAmount,
+          symmetricObstacles: scatter.symmetricObstacles,
         };
         rooms.set(code, room);
         sockets.set(ws, { room, playerId: 0 });
@@ -136,6 +147,9 @@ wss.on("connection", (ws) => {
       const army = msg.roster ?? armyByKind(msg.army);
       const game = new Game(army, msg.colors, msg.board ?? "bizarre", msg.opponentRoster, {
         autoPickupItems: msg.autoPickupItems === true,
+        itemAmount: scatter.itemAmount,
+        obstacleAmount: scatter.obstacleAmount,
+        symmetricObstacles: scatter.symmetricObstacles,
       });
       const room: Room = {
         code,
@@ -146,6 +160,9 @@ wss.on("connection", (ws) => {
         board: msg.board ?? "bizarre",
         colors: msg.colors,
         autoPickupItems: msg.autoPickupItems === true,
+        itemAmount: scatter.itemAmount,
+        obstacleAmount: scatter.obstacleAmount,
+        symmetricObstacles: scatter.symmetricObstacles,
       };
       rooms.set(code, room);
       sockets.set(ws, { room, playerId: 0 });

@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./hex";
 export * from "./board";
+export * from "./boardDecor";
 export * from "./hop";
 export * from "./movement";
 export * from "./pieces";

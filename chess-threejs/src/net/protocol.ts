@@ -18,6 +18,9 @@ export interface HostMessage {
   matchMode?: MatchMode;
   format?: ArmyFormat;
   draft?: DraftConfig;
+  itemAmount?: number;
+  obstacleAmount?: number;
+  symmetricObstacles?: boolean;
 }
 
 export interface JoinMessage {

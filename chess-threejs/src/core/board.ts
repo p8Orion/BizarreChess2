@@ -1,4 +1,5 @@
 import { hexCellExists, hexEdges, hexShade, hexSpawnZones, hexWorldZ } from "./hex";
+import { LANE11_DECOR } from "./boardDecor";
 import { itemHomeTiles } from "./items";
 import type { ArmyFormat } from "./format";
 import {
@@ -319,21 +320,7 @@ function lane11Col0(y: number): number {
   return Math.floor((LANE11_WIDTH - lane11RowWidth(y)) / 2);
 }
 
-export function lane11BorderTiles(width = LANE11_WIDTH, height = LANE11_HEIGHT): number[] {
-  const corridor0 = Math.floor((width - LANE11_CORRIDOR) / 2);
-  const corridor1 = corridor0 + LANE11_CORRIDOR;
-  const tiles: number[] = [];
-  for (let y = 0; y < height; y++) {
-    const span = lane11RowWidth(y);
-    const x0 = Math.floor((width - span) / 2);
-    for (let x = x0; x < x0 + span; x++) {
-      if (x < corridor0 || x >= corridor1) tiles.push(y * width + x);
-    }
-  }
-  return tiles;
-}
-
-/** Lane 6×11 with a mid-board bulge. Extra wing tiles host items. */
+/** Lane 6×11 with a mid-board bulge. Item/obstacle recipe is `LANE11_DECOR`. */
 export function createLane11Board(): BoardDefinition {
   const width = LANE11_WIDTH;
   const height = LANE11_HEIGHT;
@@ -342,7 +329,7 @@ export function createLane11Board(): BoardDefinition {
     return x >= x0 && x < x0 + lane11RowWidth(y) ? NodeType.Normal : NodeType.Destroyed;
   });
   const board = finishBoard("lane_10x11_bulge", "Lane — 6×11 wide center", width, height, nodes);
-  board.itemSpawnTiles = lane11BorderTiles(width, height);
+  board.decor = LANE11_DECOR;
   return board;
 }
 

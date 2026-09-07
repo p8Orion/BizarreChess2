@@ -1,6 +1,7 @@
 import { Board, createBoardByKind, definitionFromPublic } from "./board";
+import { applyBoardDecor, normalizeDecorAmounts } from "./boardDecor";
 import { normalizeStyles, type PlayerStyle } from "./colors";
-import { applyItemBreak, applyItemDrop, applyItemPick, cloneItem, defaultBoardItems, hasOnBreak, startingHeldItem } from "./items";
+import { applyItemBreak, applyItemDrop, applyItemPick, cloneItem, defaultBoardItems, hasOnBreak, placeBoardItems, startingHeldItem } from "./items";
 import { ArmyDef, BIZARRE_ARMY, PIECES, Slot } from "./pieces";
 import { BoardKind, GameEndReason, GamePhase, ItemState, NodeType, PublicState, UnitState } from "./types";
 import { isCheckmate, isStalemate, transmutationTargets, validateMove } from "./validator";
@@ -88,6 +89,10 @@ export interface DropExecution {
 
 export interface GameSettings {
   autoPickupItems?: boolean;
+  itemAmount?: number;
+  obstacleAmount?: number;
+  symmetricObstacles?: boolean;
+  seed?: number;
 }
 
 export function explosionNodes(board: Board, origin: number): number[] {
@@ -158,7 +163,9 @@ export class Game {
     opponentArmy?: Slot[] | ArmyDef | ArmySpec,
     settings?: GameSettings
   ) {
-    this.board = new Board(createBoardByKind(boardKind));
+    const scatter = normalizeDecorAmounts(settings);
+    const generated = applyBoardDecor(createBoardByKind(boardKind, settings?.seed), scatter, settings?.seed);
+    this.board = new Board(generated.def);
     this.playerColors = normalizeStyles(colors);
     this.autoPickupItems = settings?.autoPickupItems === true;
     const spec = toArmySpec(army);
@@ -167,12 +174,15 @@ export class Game {
       : { slots: spec.slots.map(({ piece, x, row }) => ({ piece, x, row })), fillEmptyFront: spec.fillEmptyFront };
     this.placeArmy(spec.slots, 0, spec.fillEmptyFront);
     this.placeArmy(opponent.slots, 1, opponent.fillEmptyFront);
-    this.items = defaultBoardItems(
-      (id) => this.board.passable(id),
-      this.board.def.width,
-      this.board.def.height,
-      this.board.def.itemSpawnTiles
-    );
+    this.items =
+      generated.itemTiles != null
+        ? placeBoardItems(generated.itemTiles, (id) => this.board.passable(id))
+        : defaultBoardItems(
+            (id) => this.board.passable(id),
+            this.board.def.width,
+            this.board.def.height,
+            this.board.def.itemSpawnTiles
+          );
     this.phase = GamePhase.Playing;
   }
 

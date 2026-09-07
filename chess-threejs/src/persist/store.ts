@@ -1,5 +1,6 @@
 import { DEFAULT_STYLE_P1, DEFAULT_STYLE_P2, normalizeStyle, type PlayerStyle } from "../core/colors";
 import { BOARD_OPTIONS, boardSupportsFormat } from "../core/board";
+import { clampDecorAmount } from "../core/boardDecor";
 import { DRAFT_PICK_MODES, DRAFT_UNIQ_OPTIONS, clampBanCount, type DraftPickModeId, type DraftUniq } from "../core/draft";
 import { defaultBoardForFormat, formatOfArmyKind, type ArmyFormat, type MatchMode } from "../core/format";
 import { rehydrateItem } from "../core/items";
@@ -153,11 +154,11 @@ function normalizeUser(raw: unknown): PersistedUser {
     pieces,
     activeArmyId,
     guestArmyId,
-    settings: normalizeSettings(o.settings),
+    settings: normalizeSettings(o.settings, rawVersion),
   };
 }
 
-function normalizeSettings(raw: unknown): UserSettings {
+function readSettings(raw: unknown): UserSettings {
   const o = raw && typeof raw === "object" ? (raw as Partial<UserSettings>) : {};
   const matchMode: MatchMode = o.matchMode === "draft" ? "draft" : "normal";
   const armyFormat: ArmyFormat = o.armyFormat === "normal" ? "normal" : "mini";
@@ -179,6 +180,19 @@ function normalizeSettings(raw: unknown): UserSettings {
     draftBanCount: clampBanCount(o.draftBanCount ?? 1),
     draftPickMode: pickMode,
     draftUniqueness: uniqueness,
+    itemAmount: clampDecorAmount(o.itemAmount ?? DEFAULT_SETTINGS.itemAmount),
+    obstacleAmount: clampDecorAmount(o.obstacleAmount ?? DEFAULT_SETTINGS.obstacleAmount),
+    symmetricObstacles: o.symmetricObstacles !== false,
+  };
+}
+
+function normalizeSettings(raw: unknown, storeVersion = USER_STORE_VERSION): UserSettings {
+  const settings = readSettings(raw);
+  if (storeVersion >= 4) return settings;
+  return {
+    ...settings,
+    itemAmount: DEFAULT_SETTINGS.itemAmount,
+    obstacleAmount: DEFAULT_SETTINGS.obstacleAmount,
   };
 }
 

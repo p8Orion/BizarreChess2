@@ -147,6 +147,15 @@ export function defaultBoardItems(
   return tiles.map((id, i) => assign[i % assign.length](id));
 }
 
+/** Place one shuffled catalog item on each tile (used by board decor recipes). */
+export function placeBoardItems(tiles: number[], passable?: (nodeId: number) => boolean): ItemState[] {
+  const makers = [createCrossbow, createForceFieldGenerator, createPowderBarrel, createEscapeScroll, createTransmuteScroll];
+  const spots = tiles.filter((id) => !passable || passable(id));
+  if (!spots.length) return [];
+  const assign = shuffleInPlace([...makers]);
+  return spots.map((id, i) => assign[i % assign.length](id));
+}
+
 export function applyItemPick(unit: UnitState, item: ItemState): void {
   if (item.kind === "ForceFieldGenerator") {
     if (!unit.skills.some((s) => s.id === "Forcefield")) {

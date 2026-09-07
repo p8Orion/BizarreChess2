@@ -13,6 +13,7 @@ import { defaultBoardForFormat, type ArmyFormat, type MatchMode } from "./core/f
 import { Game, actionNotice, previewNodesForAction, type ActionExecution, type MoveExecution } from "./core/gameState";
 import { pickupActionLabel } from "./core/items";
 import { boardsForFormat, boardSupportsFormat } from "./core/board";
+import { clampDecorAmount } from "./core/boardDecor";
 import { allTargets, GameEndReason, GamePhase, PublicState, UnitState } from "./core/types";
 import { movesForUnit, transmutationTargets } from "./core/validator";
 import { NetClient } from "./net/client";
@@ -70,6 +71,11 @@ const settingsBtn = document.querySelector<HTMLButtonElement>("#btn-settings")!;
 const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
 const autoPickupEl = document.querySelector<HTMLInputElement>("#setting-auto-pickup")!;
 const boardEl = document.querySelector<HTMLSelectElement>("#board-kind")!;
+const itemAmountEl = document.querySelector<HTMLInputElement>("#item-amount")!;
+const itemAmountValEl = document.querySelector<HTMLElement>("#item-amount-val")!;
+const obstacleAmountEl = document.querySelector<HTMLInputElement>("#obstacle-amount")!;
+const obstacleAmountValEl = document.querySelector<HTMLElement>("#obstacle-amount-val")!;
+const obstacleSymmetricEl = document.querySelector<HTMLInputElement>("#obstacle-symmetric")!;
 const armyRostersEl = document.querySelector<HTMLElement>("#army-rosters")!;
 const matchModeEl = document.querySelector<HTMLElement>("#match-mode")!;
 const armyFormatEl = document.querySelector<HTMLElement>("#army-format")!;
@@ -172,6 +178,19 @@ function chosenDraftConfig() {
   );
 }
 
+function chosenScatter() {
+  return {
+    itemAmount: clampDecorAmount(Number(itemAmountEl.value)),
+    obstacleAmount: clampDecorAmount(Number(obstacleAmountEl.value)),
+    symmetricObstacles: obstacleSymmetricEl.checked,
+  };
+}
+
+function syncScatterLabels(): void {
+  itemAmountValEl.textContent = `${clampDecorAmount(Number(itemAmountEl.value))}%`;
+  obstacleAmountValEl.textContent = `${clampDecorAmount(Number(obstacleAmountEl.value))}%`;
+}
+
 function persistLobby(): void {
   user = setUserSettings({
     matchMode,
@@ -180,6 +199,7 @@ function persistLobby(): void {
     draftBanCount: clampBanCount(Number(draftBanCountEl.value)),
     draftPickMode,
     draftUniqueness: readUniqueness(),
+    ...chosenScatter(),
   });
 }
 
@@ -254,6 +274,7 @@ function beginMatchFromDraft(finished: Draft): void {
   pendingAction = null;
   game = new Game(finished.toArmy(0), chosenColors(), boardKind(), finished.toArmy(1), {
     autoPickupItems: user.settings.autoPickupItems,
+    ...chosenScatter(),
   });
   hideDraft();
   showGame();
@@ -774,6 +795,7 @@ function playOffline(): void {
   user = setActiveArmy(armyEl.value);
   game = new Game(chosenRoster(), chosenColors(), boardKind(), chosenGuestRoster(), {
     autoPickupItems: user.settings.autoPickupItems,
+    ...chosenScatter(),
   });
   showGame();
   netInfoEl.textContent = "Hotseat — cyan orb is a Force Field; bronze cube is a Crossbow";
@@ -799,6 +821,7 @@ async function hostOnline(): Promise<void> {
       matchMode,
       format: armyFormat,
       draft: matchMode === "draft" ? chosenDraftConfig() : undefined,
+      ...chosenScatter(),
     });
   } catch (err) {
     menuStatusEl.textContent = err instanceof Error ? err.message : "Host failed";
@@ -1045,6 +1068,10 @@ function fillPickModes(): void {
 fillPickModes();
 draftBanCountEl.value = String(user.settings.draftBanCount);
 draftUniqEl.value = user.settings.draftUniqueness;
+itemAmountEl.value = String(user.settings.itemAmount);
+obstacleAmountEl.value = String(user.settings.obstacleAmount);
+obstacleSymmetricEl.checked = user.settings.symmetricObstacles !== false;
+syncScatterLabels();
 refreshModeForm();
 refreshArmySelect();
 applyStyleToForm(0, user.style);
@@ -1083,6 +1110,13 @@ draftBanCountEl.addEventListener("change", () => {
 });
 draftUniqEl.addEventListener("change", persistLobby);
 boardEl.addEventListener("change", persistLobby);
+for (const el of [itemAmountEl, obstacleAmountEl]) {
+  el.addEventListener("input", () => {
+    syncScatterLabels();
+    persistLobby();
+  });
+}
+obstacleSymmetricEl.addEventListener("change", persistLobby);
 for (const el of [colorP1El, colorP1SecEl, colorP2El, colorP2SecEl, patternP1El, patternP2El]) {
   el.addEventListener("change", persistStylesFromForm);
 }

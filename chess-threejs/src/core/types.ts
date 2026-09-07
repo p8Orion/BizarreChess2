@@ -210,6 +210,32 @@ export function blocksFlight(node: NodeState): boolean {
   return node.currentType === NodeType.Impassable;
 }
 
+/** Algebraic square, 1-based rank: "a6", "c5". */
+export type SquareName = string;
+
+export type DecorChance = number | "always" | "itemAmount" | "obstacleAmount";
+
+export interface ItemGroupSpec {
+  /** One side of a 180° pair is enough; the mirror is added automatically. */
+  tiles: SquareName[];
+  chance: DecorChance;
+}
+
+export interface ObstacleSpec {
+  /** Inclusive 1-based ranks. */
+  ranks: [number, number];
+  pitChance: DecorChance;
+  mountainChance: DecorChance;
+  /** Skip the two spawn rows at each end. Default true. */
+  keepSpawnClear?: boolean;
+}
+
+/** Per-map item and obstacle recipe. */
+export interface BoardDecorSpec {
+  items?: ItemGroupSpec[];
+  obstacles?: ObstacleSpec;
+}
+
 export interface BoardDefinition {
   id: string;
   displayName: string;
@@ -221,6 +247,8 @@ export interface BoardDefinition {
   spawn: { back: number[]; front: number[] }[];
   /** If set, board items spawn on these tiles instead of the usual center homes. */
   itemSpawnTiles?: number[];
+  /** Optional item/obstacle recipe. Applied at match start with the lobby amounts. */
+  decor?: BoardDecorSpec;
 }
 
 export interface MoveTargets {

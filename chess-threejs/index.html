@@ -117,6 +117,20 @@
             Mapa
             <select id="board-kind"></select>
           </label>
+          <label class="scatter">
+            Cantidad de items
+            <input id="item-amount" type="range" min="0" max="40" step="5" />
+            <span id="item-amount-val">5%</span>
+          </label>
+          <label class="scatter">
+            Cantidad de obstáculos
+            <input id="obstacle-amount" type="range" min="0" max="40" step="5" />
+            <span id="obstacle-amount-val">5%</span>
+          </label>
+          <label class="setting scatter-flag">
+            <input id="obstacle-symmetric" type="checkbox" checked />
+            <span>Simétrico</span>
+          </label>
         </section>
         <section class="menu-panel" id="play-panel">
           <button id="btn-offline">Play Offline</button>

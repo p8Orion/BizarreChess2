@@ -681,7 +681,8 @@ button.ghost {
 }
 
 label.army,
-label.board {
+label.board,
+label.scatter {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -689,6 +690,22 @@ label.board {
   margin-top: 10px;
   color: #d8c9a8;
   font-size: 0.92rem;
+}
+
+label.scatter input[type="range"] {
+  flex: 1;
+  min-width: 80px;
+  accent-color: #c9a15b;
+}
+
+label.scatter span {
+  width: 3.2em;
+  text-align: right;
+  color: #f4ead7;
+}
+
+.scatter-flag {
+  margin-top: 6px;
 }
 
 .army-actions {
