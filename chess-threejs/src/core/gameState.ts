@@ -1,9 +1,11 @@
 import { Board, createBoardByKind, definitionFromPublic } from "./board";
 import { applyBoardDecor, normalizeDecorAmounts } from "./boardDecor";
 import { normalizeStyles, type PlayerStyle } from "./colors";
+import { applyCooldownTriggers, actionReady, tickUnitCooldowns } from "./cooldown";
 import { applyItemBreak, applyItemDrop, applyItemPick, cloneItem, defaultBoardItems, hasOnBreak, itemIsSpent, placeBoardItems, refillItemUses, spendItemUse, startingHeldItem } from "./items";
 import { ArmyDef, BIZARRE_ARMY, PIECES, Slot } from "./pieces";
-import { BoardKind, GameEndReason, GamePhase, ItemState, NodeType, PublicState, UnitState } from "./types";
+import { filterUnitsForViewer, hasOwnShadow, principalOn, unitVisibleTo } from "./occupancy";
+import { BoardKind, GameEndReason, GamePhase, ItemState, NodeType, PublicState, UnitAction, UnitState } from "./types";
 import { isCheckmate, isStalemate, transmutationTargets, validateMove } from "./validator";
 
 export type SpawnSlot = Slot & { pieceId?: string; heldItem?: ItemState | null };
@@ -34,6 +36,10 @@ export interface MoveExecution {
   isRangedCapture: boolean;
   captureBlocked: boolean;
   forcefieldConsumedUnitId: number | null;
+  pushedUnitId: number | null;
+  pushToNode: number | null;
+  pushFalls: boolean;
+  convertedUnitId: number | null;
   droppedItemId: string | null;
   droppedItemNodeId: number | null;
   pickedItemId: string | null;
@@ -65,6 +71,11 @@ export interface ActionExecution {
   actionId: string;
   originNode: number;
   destNode?: number;
+  swappedUnitId?: number;
+  /** Action did not mark the piece or end the turn. */
+  free?: boolean;
+  captureBlocked?: boolean;
+  forcefieldConsumedUnitId?: number | null;
   explosionOrigins: number[];
   blastNodes: number[];
   killedUnitIds: number[];
@@ -105,6 +116,10 @@ export function explosionNodes(board: Board, origin: number): number[] {
   return [origin, ...next];
 }
 
+export function swapTargets(board: Board, originNode: number, all: UnitState[]): number[] {
+  return board.neighbors(originNode).filter((id) => !!principalOn(all, id));
+}
+
 export function previewNodesForAction(
   actionId: string,
   board: Board,
@@ -122,6 +137,20 @@ export function previewNodesForAction(
     if (unit.heldItem?.kind === "TransmuteScroll" && itemIsSpent(unit.heldItem)) return [];
     return transmutationTargets(board, unit, all);
   }
+  if (actionId === "SwapCharm") {
+    if (unit?.heldItem?.kind === "SwapCharm" && itemIsSpent(unit.heldItem)) return [];
+    return swapTargets(board, originNode, all);
+  }
+  if (actionId === "EnterShadow") {
+    if (!unit || unit.inShadow) return [];
+    return [originNode];
+  }
+  if (actionId === "Stab") {
+    if (!unit?.inShadow) return [];
+    const victim = principalOn(all, originNode);
+    if (!victim || victim.ownerId === unit.ownerId) return [];
+    return [originNode];
+  }
   return [];
 }
 
@@ -130,6 +159,12 @@ export function actionNotice(action: ActionExecution): string | undefined {
   if (action.gameEnded) return action.endReason;
   if (action.actionId === "EscapeScroll") return "Returned to the starting square";
   if (action.actionId === "TransmuteScroll") return "The square turned to stone";
+  if (action.actionId === "SwapCharm") return "Swapped places";
+  if (action.actionId === "EnterShadow") return "Vanished into shadow";
+  if (action.actionId === "Stab") {
+    if (action.captureBlocked) return "The force field killed the assassin";
+    return "Stabbed";
+  }
   if (action.actionId === "Bomb") return "Explosion";
   return undefined;
 }
@@ -209,7 +244,7 @@ export class Game {
     return game;
   }
 
-  toPublic(): PublicState {
+  toPublic(viewerId?: number): PublicState {
     return {
       phase: this.phase,
       turnNumber: this.turnNumber,
@@ -224,10 +259,43 @@ export class Game {
       lights: this.board.def.nodes.map((n) => n.isLight),
       shades: this.board.def.nodes.map((n) => n.shade),
       layout: this.board.layout,
-      units: structuredClone(this.units),
+      units: structuredClone(filterUnitsForViewer(this.units, viewerId)),
       items: structuredClone(this.items),
       playerColors: [{ ...this.playerColors[0] }, { ...this.playerColors[1] }],
       autoPickupItems: this.autoPickupItems,
+    };
+  }
+
+  sanitizeMove(move: MoveExecution, viewerId?: number): MoveExecution {
+    const vis = (id: number | null | undefined) =>
+      id != null && id >= 0 && this.units.some((u) => u.unitId === id && unitVisibleTo(u, viewerId));
+    const actorKnown = vis(move.unitId);
+    return {
+      ...move,
+      unitId: actorKnown ? move.unitId : -1,
+      fromNode: actorKnown ? move.fromNode : move.toNode,
+      capturedUnitId: vis(move.capturedUnitId) ? move.capturedUnitId : null,
+      convertedUnitId: vis(move.convertedUnitId) ? move.convertedUnitId : null,
+      pushedUnitId: vis(move.pushedUnitId) ? move.pushedUnitId : null,
+      forcefieldConsumedUnitId: vis(move.forcefieldConsumedUnitId) ? move.forcefieldConsumedUnitId : null,
+      killedUnitIds: move.killedUnitIds.filter((id) => vis(id)),
+    };
+  }
+
+  sanitizeAction(action: ActionExecution, viewerId?: number): ActionExecution | undefined {
+    const actor = this.units.find((u) => u.unitId === action.unitId);
+    const actorKnown = actor ? unitVisibleTo(actor, viewerId) : viewerId == null;
+    const vis = (id: number | null | undefined) =>
+      id != null && id >= 0 && this.units.some((u) => u.unitId === id && unitVisibleTo(u, viewerId));
+    if (!actorKnown && !action.killedUnitIds.some((id) => vis(id)) && !vis(action.forcefieldConsumedUnitId) && !action.gameEnded) {
+      return undefined;
+    }
+    return {
+      ...action,
+      unitId: actorKnown ? action.unitId : -1,
+      swappedUnitId: vis(action.swappedUnitId) ? action.swappedUnitId : undefined,
+      forcefieldConsumedUnitId: vis(action.forcefieldConsumedUnitId) ? action.forcefieldConsumedUnitId : null,
+      killedUnitIds: action.killedUnitIds.filter((id) => vis(id)),
     };
   }
 
@@ -261,6 +329,7 @@ export class Game {
         pieceId: slot.pieceId,
         rosterRow: slot.row,
         rosterX: slot.x,
+        inShadow: !!def.inShadow,
       };
       if (unit.heldItem) {
         refillItemUses(unit.heldItem);
@@ -312,7 +381,38 @@ export class Game {
 
     let pendingShatter: { item: ItemState; nodeId: number } | undefined;
 
-    if (validation.isCapture && validation.capturedUnitId != null) {
+    if (validation.isPush && validation.pushedUnitId != null) {
+      const victim = this.units.find((u) => u.unitId === validation.pushedUnitId);
+      if (!victim) return this.failMove("Nothing to push");
+      const dest = validation.pushToNode ?? victim.currentNodeId;
+      if (validation.pushFalls) {
+        const loot = this.killUnit(victim);
+        if (loot.drop) {
+          droppedItemId = loot.drop.itemId;
+          droppedItemNodeId = loot.drop.nodeId;
+        }
+        pendingShatter = loot.shatter;
+        killedUnitIds.push(victim.unitId);
+      } else if (dest !== victim.currentNodeId) {
+        victim.currentNodeId = dest;
+      }
+    } else if (validation.isConvert && validation.convertedUnitId != null) {
+      const target = this.units.find((u) => u.unitId === validation.convertedUnitId);
+      const field = target?.skills.find((s) => s.id === "Forcefield" && s.isActive);
+      if (target && field) {
+        field.isActive = false;
+        captureBlocked = true;
+        forcefieldConsumed = target.unitId;
+        unit.hasMovedThisTurn = true;
+      } else if (target) {
+        target.ownerId = unit.ownerId;
+        target.homeNodeId = target.currentNodeId;
+        target.convertedThisMatch = true;
+        target.pieceId = undefined;
+        target.rosterRow = undefined;
+        target.rosterX = undefined;
+      }
+    } else if (validation.isCapture && validation.capturedUnitId != null) {
       const captured = this.units.find((u) => u.unitId === validation.capturedUnitId);
       const field = captured?.skills.find((s) => s.id === "Forcefield" && s.isActive);
       if (captured && field) {
@@ -331,11 +431,12 @@ export class Game {
     }
 
     if (!captureBlocked) {
-      if (!validation.isRangedCapture) {
+      if (validation.isConvert || validation.isRangedCapture) {
+        unit.hasMovedThisTurn = true;
+        unit.hasEverMoved = true;
+      } else {
         unit.currentNodeId = targetNode;
         unit.hasEverMoved = true;
-        unit.hasMovedThisTurn = true;
-      } else {
         unit.hasMovedThisTurn = true;
       }
     }
@@ -344,7 +445,7 @@ export class Game {
       const blast = this.breakItem(pendingShatter.item, pendingShatter.nodeId);
       explosionOrigins = blast.origins;
       blastNodes = blast.nodes;
-      killedUnitIds = blast.killedUnitIds;
+      killedUnitIds = [...new Set([...killedUnitIds, ...blast.killedUnitIds])];
       destroyedItemIds = blast.destroyedItemIds;
     }
 
@@ -365,6 +466,10 @@ export class Game {
       isRangedCapture: validation.isRangedCapture,
       captureBlocked,
       forcefieldConsumedUnitId: forcefieldConsumed,
+      pushedUnitId: validation.pushedUnitId,
+      pushToNode: validation.pushToNode,
+      pushFalls: validation.pushFalls,
+      convertedUnitId: captureBlocked ? null : validation.convertedUnitId,
       droppedItemId,
       droppedItemNodeId,
       pickedItemId,
@@ -386,6 +491,7 @@ export class Game {
     const unit = this.units.find((u) => u.unitId === unitId);
     if (!unit) return this.failPickup("Unit not found");
     if (unit.ownerId !== playerId) return this.failPickup("Not your unit");
+    if (unit.inShadow) return this.failPickup("Hidden pieces cannot pick up items");
     if (unit.hasMovedThisTurn) return this.failPickup("Unit has already acted this turn");
     if (unit.heldItem) return this.failPickup("Unit already holds an item");
     const item = this.items.find((i) => i.nodeId === unit.currentNodeId);
@@ -413,6 +519,7 @@ export class Game {
     if (!unit) return this.failDrop("Unit not found");
     if (unit.ownerId !== playerId) return this.failDrop("Not your unit");
     if (!unit.isAlive) return this.failDrop("Unit is dead");
+    if (unit.inShadow) return this.failDrop("Hidden pieces cannot drop items");
     const item = unit.heldItem;
     if (!item) return this.failDrop("Unit is not holding an item");
     if (this.items.some((ground) => ground.nodeId === unit.currentNodeId)) {
@@ -441,10 +548,17 @@ export class Game {
     if (!unit) return this.failAction("Unit not found");
     if (unit.ownerId !== playerId) return this.failAction("Not your unit");
     if (!unit.isAlive) return this.failAction("Unit is dead");
-    if (unit.hasMovedThisTurn) return this.failAction("Unit has already acted this turn");
-    if (!unit.actions.some((a) => a.id === actionId)) return this.failAction("Unknown action");
+    const action = unit.actions.find((a) => a.id === actionId);
+    if (!action) return this.failAction("Unknown action");
+    if (!action.free && unit.hasMovedThisTurn) return this.failAction("Unit has already acted this turn");
+    if (!actionReady(action)) {
+      return this.failAction(action.cooldown === -1 ? "That ability is locked" : "That ability is on cooldown");
+    }
+    if (actionId === "EnterShadow") return this.useEnterShadow(unit, action);
+    if (actionId === "Stab") return this.useStab(unit, action);
     if (actionId === "EscapeScroll") return this.useEscapeScroll(unit);
     if (actionId === "TransmuteScroll") return this.useTransmuteScroll(unit, targetNode);
+    if (actionId === "SwapCharm") return this.useSwapCharm(unit, targetNode);
     if (actionId !== "Bomb") return this.failAction("Unknown action");
     const item = unit.heldItem;
     if (item?.kind !== "Bomb") return this.failAction("No bomb to ignite");
@@ -477,6 +591,111 @@ export class Game {
     };
   }
 
+  private useEnterShadow(unit: UnitState, action: UnitAction): ActionExecution {
+    if (unit.inShadow) return this.failAction("Already hidden");
+    if (hasOwnShadow(this.units, unit.currentNodeId, unit.ownerId, unit.unitId)) {
+      return this.failAction("A hidden piece of yours is already there");
+    }
+    unit.inShadow = true;
+    applyCooldownTriggers(unit, action);
+    unit.hasMovedThisTurn = true;
+    unit.hasEverMoved = true;
+    this.checkWin();
+    const gameEnded = this.endReason !== GameEndReason.None;
+    if (!gameEnded) this.endTurn();
+    return {
+      success: true,
+      unitId: unit.unitId,
+      actionId: "EnterShadow",
+      originNode: unit.currentNodeId,
+      explosionOrigins: [],
+      blastNodes: [],
+      killedUnitIds: [],
+      destroyedItemIds: [],
+      droppedItems: [],
+      gameEnded,
+      winnerId: this.winnerId,
+      endReason: this.endReason,
+      turnNumber: this.turnNumber,
+      currentPlayerId: this.currentPlayerId,
+    };
+  }
+
+  private useStab(unit: UnitState, action: UnitAction): ActionExecution {
+    if (!unit.inShadow) return this.failAction("Must be hidden");
+    const target = principalOn(this.units, unit.currentNodeId);
+    if (!target || target.ownerId === unit.ownerId) return this.failAction("No enemy here");
+    const origin = unit.currentNodeId;
+    const field = target.skills.find((s) => s.id === "Forcefield" && s.isActive);
+    if (field) {
+      field.isActive = false;
+      const loot = this.killUnit(unit);
+      this.checkWin();
+      const gameEnded = this.endReason !== GameEndReason.None;
+      if (!gameEnded) this.endTurn();
+      return {
+        success: true,
+        unitId: unit.unitId,
+        actionId: "Stab",
+        originNode: origin,
+        captureBlocked: true,
+        forcefieldConsumedUnitId: target.unitId,
+        explosionOrigins: [],
+        blastNodes: [],
+        killedUnitIds: [unit.unitId],
+        destroyedItemIds: [],
+        droppedItems: loot.drop ? [{ itemId: loot.drop.itemId, nodeId: loot.drop.nodeId }] : [],
+        gameEnded,
+        winnerId: this.winnerId,
+        endReason: this.endReason,
+        turnNumber: this.turnNumber,
+        currentPlayerId: this.currentPlayerId,
+      };
+    }
+
+    const loot = this.killUnit(target);
+    const killedUnitIds = [target.unitId];
+    let explosionOrigins: number[] = [];
+    let blastNodes: number[] = [];
+    let destroyedItemIds: string[] = [];
+    const droppedItems = loot.drop ? [{ itemId: loot.drop.itemId, nodeId: loot.drop.nodeId }] : [];
+    if (loot.shatter) {
+      const blast = this.breakItem(loot.shatter.item, loot.shatter.nodeId);
+      explosionOrigins = blast.origins;
+      blastNodes = blast.nodes;
+      destroyedItemIds = blast.destroyedItemIds;
+      for (const id of blast.killedUnitIds) {
+        if (!killedUnitIds.includes(id)) killedUnitIds.push(id);
+      }
+    }
+    if (unit.isAlive) {
+      unit.inShadow = false;
+      applyCooldownTriggers(unit, action);
+      unit.hasMovedThisTurn = true;
+      unit.hasEverMoved = true;
+    }
+
+    this.checkWin();
+    const gameEnded = this.endReason !== GameEndReason.None;
+    if (!gameEnded) this.endTurn();
+    return {
+      success: true,
+      unitId: unit.unitId,
+      actionId: "Stab",
+      originNode: origin,
+      explosionOrigins,
+      blastNodes,
+      killedUnitIds,
+      destroyedItemIds,
+      droppedItems,
+      gameEnded,
+      winnerId: this.winnerId,
+      endReason: this.endReason,
+      turnNumber: this.turnNumber,
+      currentPlayerId: this.currentPlayerId,
+    };
+  }
+
   private useTransmuteScroll(unit: UnitState, targetNode?: number): ActionExecution {
     const item = unit.heldItem;
     if (item?.kind !== "TransmuteScroll") return this.failAction("No transmutation scroll");
@@ -490,6 +709,11 @@ export class Game {
     }
 
     if (!spendItemUse(item)) return this.failAction("No uses left");
+    const crushed: number[] = [];
+    for (const shadow of this.units.filter((u) => u.isAlive && u.inShadow && u.currentNodeId === targetNode)) {
+      this.killUnit(shadow);
+      crushed.push(shadow.unitId);
+    }
     unit.hasMovedThisTurn = true;
     unit.hasEverMoved = true;
 
@@ -503,6 +727,49 @@ export class Game {
       actionId: "TransmuteScroll",
       originNode: unit.currentNodeId,
       destNode: targetNode,
+      explosionOrigins: [],
+      blastNodes: [],
+      killedUnitIds: crushed,
+      destroyedItemIds: [],
+      droppedItems: [],
+      gameEnded,
+      winnerId: this.winnerId,
+      endReason: this.endReason,
+      turnNumber: this.turnNumber,
+      currentPlayerId: this.currentPlayerId,
+    };
+  }
+
+  private useSwapCharm(unit: UnitState, targetNode?: number): ActionExecution {
+    const item = unit.heldItem;
+    if (item?.kind !== "SwapCharm") return this.failAction("No swap charm");
+    if (itemIsSpent(item)) return this.failAction("No uses left");
+    if (targetNode == null) return this.failAction("Choose an adjacent piece");
+    if (!this.board.areConnected(unit.currentNodeId, targetNode)) {
+      return this.failAction("That piece is not adjacent");
+    }
+    const other = principalOn(this.units, targetNode);
+    if (!other) return this.failAction("No piece there");
+    if (other.unitId === unit.unitId) return this.failAction("Cannot swap with itself");
+
+    if (!spendItemUse(item)) return this.failAction("No uses left");
+    const from = unit.currentNodeId;
+    unit.currentNodeId = other.currentNodeId;
+    other.currentNodeId = from;
+    unit.hasEverMoved = true;
+    other.hasEverMoved = true;
+
+    this.checkWin();
+    const gameEnded = this.endReason !== GameEndReason.None;
+
+    return {
+      success: true,
+      unitId: unit.unitId,
+      actionId: "SwapCharm",
+      originNode: from,
+      destNode: targetNode,
+      swappedUnitId: other.unitId,
+      free: true,
       explosionOrigins: [],
       blastNodes: [],
       killedUnitIds: [],
@@ -524,8 +791,10 @@ export class Game {
     if (home == null) return this.failAction("No starting square recorded");
     if (home === unit.currentNodeId) return this.failAction("Already on the starting square");
     if (!this.board.passable(home)) return this.failAction("The starting square is gone");
-    const blocker = this.units.find((other) => other.isAlive && other.currentNodeId === home);
-    if (blocker) return this.failAction("The starting square is occupied");
+    if (principalOn(this.units, home)) return this.failAction("The starting square is occupied");
+    if (unit.inShadow && hasOwnShadow(this.units, home, unit.ownerId, unit.unitId)) {
+      return this.failAction("A hidden piece of yours is already there");
+    }
 
     const from = unit.currentNodeId;
     if (!spendItemUse(item)) return this.failAction("No uses left");
@@ -688,6 +957,7 @@ export class Game {
     if (this.currentPlayerId === 0) this.turnNumber++;
     for (const unit of this.units.filter((u) => u.ownerId === this.currentPlayerId)) {
       unit.hasMovedThisTurn = false;
+      tickUnitCooldowns(unit);
     }
   }
 
@@ -703,6 +973,10 @@ export class Game {
       isRangedCapture: false,
       captureBlocked: false,
       forcefieldConsumedUnitId: null,
+      pushedUnitId: null,
+      pushToNode: null,
+      pushFalls: false,
+      convertedUnitId: null,
       droppedItemId: null,
       droppedItemNodeId: null,
       pickedItemId: null,
@@ -733,7 +1007,7 @@ export class Game {
   }
 
   private maybeAutoPickup(unit: UnitState): string | null {
-    if (!this.autoPickupItems || unit.heldItem) return null;
+    if (!this.autoPickupItems || unit.heldItem || unit.inShadow) return null;
     const item = this.items.find((ground) => ground.nodeId === unit.currentNodeId);
     if (!item) return null;
     this.giveItem(unit, item);

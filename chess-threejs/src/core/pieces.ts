@@ -1,4 +1,5 @@
 import type { ArmyFormat } from "./format";
+import { COOLDOWN_LOCKED } from "./cooldown";
 import { queenHurdleCapture, queenHurdleMove } from "./hop";
 import { MovementType, UnitDefinition, leaper, pattern } from "./types";
 
@@ -13,6 +14,7 @@ function def(
     model: id.toLowerCase(),
     skills: [],
     actions: [],
+    inShadow: false,
     ...extra,
     id,
   };
@@ -56,9 +58,33 @@ export const PIECES: Record<string, UnitDefinition> = {
     patterns: [leaper(3, 1)],
   }),
   Crossbowman: def("Crossbowman", {
-    patterns: [
-      pattern({ type: MovementType.Adjacent, maxDistance: 1, moveOnly: true }),
-      CROSSBOW_SHOT,
+    patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, moveOnly: true })],
+  }),
+  Pusher: def("Pusher", {
+    model: "placeholder",
+    patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, pushDistance: -1 })],
+  }),
+  Priest: def("Priest", {
+    model: "placeholder",
+    patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, moveOnly: true, converts: true })],
+  }),
+  Assassin: def("Assassin", {
+    model: "placeholder",
+    patterns: [pattern({ type: MovementType.Diagonal, maxDistance: 2, moveOnly: true, passesUnits: true })],
+    actions: [
+      {
+        id: "EnterShadow",
+        label: "Enter shadows",
+        maxCooldown: 3,
+        cooldown: 0,
+        cooldownAfterUse: COOLDOWN_LOCKED,
+      },
+      {
+        id: "Stab",
+        label: "Stab",
+        resetActionId: "EnterShadow",
+        resetActionTo: "max",
+      },
     ],
   }),
   Cannon: def("Cannon", {

@@ -8,6 +8,7 @@ import { createPatternMap } from "./patterns";
 import type { ActionExecution, MoveExecution } from "../core/gameState";
 import { hexCellExists, hexWorldZ, isStructuralGap } from "../core/hex";
 import { PIECES } from "../core/pieces";
+import { principalOn } from "../core/occupancy";
 import { BoardLayout, ItemState, MoveTargets, NodeType, PublicState, UnitState } from "../core/types";
 import { createBoardFrameGeometry, tileWorldRect, type WorldRect } from "./boardFrame";
 import {
@@ -61,6 +62,9 @@ const TARGET_HEIGHT: Record<string, number> = {
   Cannon: KING_HEIGHT * 0.62,
   Crossbowman: KING_HEIGHT * 0.72,
   Grasshopper: KING_HEIGHT * 0.88,
+  Pusher: KING_HEIGHT * 0.7,
+  Priest: KING_HEIGHT * 0.72,
+  Assassin: KING_HEIGHT * 0.68,
 };
 
 /** Screen-left for P1 (looking +Z) is +X, so file A (x=0) is mirrored. */
@@ -79,6 +83,26 @@ function stateLayout(state: PublicState): BoardLayout {
 
 function nodeCenter(state: PublicState, nodeId: number): THREE.Vector3 {
   return tileCenter(nodeId % state.width, Math.floor(nodeId / state.width), stateLayout(state), state.width);
+}
+
+const SHADOW_NUDGE = 0.32;
+
+/** Back-right from that player's facing. Item sits at +0.32,+0.32. */
+function shadowOffset(ownerId: number): { x: number; z: number } {
+  return ownerId === 0 ? { x: SHADOW_NUDGE, z: -SHADOW_NUDGE } : { x: -SHADOW_NUDGE, z: SHADOW_NUDGE };
+}
+
+function pieceCenter(state: PublicState, unit: UnitState): THREE.Vector3 {
+  const at = nodeCenter(state, unit.currentNodeId);
+  if (!unit.inShadow) return at;
+  const nudge = shadowOffset(unit.ownerId);
+  return new THREE.Vector3(at.x + nudge.x, 0, at.z + nudge.z);
+}
+
+function standAt(state: PublicState, unitId: number, nodeId: number): THREE.Vector3 {
+  const unit = state.units.find((u) => u.unitId === unitId);
+  if (!unit) return nodeCenter(state, nodeId);
+  return pieceCenter(state, { ...unit, currentNodeId: nodeId });
 }
 
 /** 30% into the last tile (penultimate → destination), not 30% of the whole trip. */
@@ -101,6 +125,7 @@ function itemTint(item: ItemState): string | undefined {
 const SCROLL_SPARK: Record<string, number> = {
   EscapeScroll: 0x3a68e8,
   TransmuteScroll: 0xb8b8b8,
+  SwapCharm: 0xc45ec8,
 };
 
 function isBlueBandMaterial(material: THREE.Material): boolean {
@@ -139,6 +164,7 @@ interface PieceActor {
   heldItem?: THREE.Group;
   heldItemId?: string;
   traveling: boolean;
+  ownerId?: number;
 }
 
 export type InspectHover = { kind: "unit"; unitId: number } | { kind: "item"; itemId: string };
@@ -179,6 +205,7 @@ export class GameView {
   busy = false;
   onTileClick: ((nodeId: number) => void) | null = null;
   onItemClick: ((itemId: string, nodeId: number) => void) | null = null;
+  onUnitClick: ((unitId: number) => void) | null = null;
   onInspectHover: ((target: InspectHover | null) => void) | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -242,7 +269,10 @@ export class GameView {
     if (!this.state) return;
     for (const unit of this.state.units) {
       const actor = this.pieces.get(unit.unitId);
-      if (actor) this.tint(actor.group, unit.ownerId, unit.definitionId);
+      if (actor) {
+        this.tint(actor.group, unit.ownerId, unit.definitionId);
+        this.applyShadowLook(actor.group, unit);
+      }
     }
   }
 
@@ -276,8 +306,12 @@ export class GameView {
     this.syncPieces(prev, false);
     this.syncItems(prev);
     const actor = this.pieces.get(move.unitId);
-    const from = nodeCenter(next, move.fromNode);
-    const to = nodeCenter(next, move.toNode);
+    const from = standAt(prev, move.unitId, move.fromNode);
+    const to = standAt(
+      next.units.some((u) => u.unitId === move.unitId) ? next : prev,
+      move.unitId,
+      move.toNode
+    );
     if (actor) actor.group.position.copy(from);
 
     if (move.captureBlocked && move.forcefieldConsumedUnitId != null) {
@@ -286,6 +320,16 @@ export class GameView {
     } else if (move.isRangedCapture) {
       await this.playAttack(actor, false);
       if (move.capturedUnitId != null) await this.playDeath(move.capturedUnitId);
+    } else if (move.convertedUnitId != null) {
+      await this.playAttack(actor, false);
+    } else if (move.pushedUnitId != null) {
+      const victim = this.pieces.get(move.pushedUnitId);
+      const shovedFrom = nodeCenter(prev, move.toNode);
+      if (victim && move.pushToNode != null && move.pushToNode !== move.toNode) {
+        await this.travel(victim, shovedFrom, nodeCenter(prev, move.pushToNode), false);
+      }
+      if (move.pushFalls) await this.playPitFall(move.pushedUnitId);
+      await this.travel(actor, from, to, false);
     } else if (move.isCapture) {
       await this.approachAndStrike(actor, from, to);
       if (move.capturedUnitId != null) await this.playDeath(move.capturedUnitId);
@@ -303,7 +347,7 @@ export class GameView {
         ),
       ]);
       await Promise.all(
-        (move.killedUnitIds ?? []).filter((id) => id !== move.capturedUnitId).map((id) => this.playDeath(id))
+        (move.killedUnitIds ?? []).filter((id) => id !== move.capturedUnitId && id !== move.pushedUnitId).map((id) => this.playDeath(id))
       );
     }
 
@@ -317,8 +361,40 @@ export class GameView {
     this.state = prev;
     this.syncPieces(prev, false);
     this.syncItems(prev);
+    if (action.actionId === "EnterShadow") {
+      const origin = nodeCenter(prev, action.originNode).setY(0.48);
+      await this.playSparkBurst(origin, new THREE.Color(0x3a2060));
+      this.setState(next);
+      this.busy = false;
+      return;
+    }
+    if (action.actionId === "Stab") {
+      const actor = this.pieces.get(action.unitId);
+      await this.playAttack(actor, true);
+      if (action.captureBlocked && action.forcefieldConsumedUnitId != null) {
+        await this.breakForcefield(action.forcefieldConsumedUnitId);
+      }
+      if (action.explosionOrigins.length) {
+        await Promise.all([
+          this.shatterItems(action.destroyedItemIds),
+          ...action.explosionOrigins.map((origin, i) =>
+            this.wait(i * 0.16).then(() => this.playExplosion(origin, action.blastNodes))
+          ),
+        ]);
+      }
+      await Promise.all(action.killedUnitIds.map((id) => this.playDeath(id)));
+      this.setState(next);
+      this.busy = false;
+      return;
+    }
+    if (action.actionId === "SwapCharm") {
+      await this.playSwap(prev, next, action);
+      this.busy = false;
+      return;
+    }
     if (action.actionId === "TransmuteScroll" || action.actionId === "EscapeScroll") {
       await this.playScrollUse(prev, next, action);
+      await Promise.all(action.killedUnitIds.map((id) => this.playDeath(id)));
       this.busy = false;
       return;
     }
@@ -381,6 +457,10 @@ export class GameView {
     return { move: primary, capture, ranged };
   }
 
+  private tileHasPrincipal(nodeId: number): boolean {
+    return !!this.state?.units.some((u) => u.isAlive && !u.inShadow && u.currentNodeId === nodeId);
+  }
+
   private paintMarkers(
     group: THREE.Group,
     targets: MoveTargets | null,
@@ -392,13 +472,24 @@ export class GameView {
     group.clear();
     if (!targets || !this.state) return;
     const both = new Set(targets.both);
+    const shareOccupied = new Set(targets.moveOnly.filter((id) => this.tileHasPrincipal(id)));
     for (const id of [...targets.moveOnly, ...targets.both]) {
+      if (shareOccupied.has(id) && !both.has(id)) {
+        this.addMarker(group, id, this.ringMap, colors.move, 0.9 * scale, y + 0.002, opacity);
+        continue;
+      }
       this.addMarker(group, id, this.circleMap, colors.move, 0.68 * scale, y, opacity);
     }
     for (const id of [...targets.captureOnly, ...targets.both]) {
       this.addMarker(group, id, this.ringMap, both.has(id) ? colors.move : colors.capture, 0.9 * scale, y + 0.002, opacity);
     }
     for (const id of targets.rangedCapture) {
+      this.addMarker(group, id, this.crossMap, colors.ranged, scale, y + 0.004, opacity);
+    }
+    for (const id of targets.push) {
+      this.addMarker(group, id, this.ringMap, colors.capture, 0.9 * scale, y + 0.002, opacity);
+    }
+    for (const id of targets.convert) {
       this.addMarker(group, id, this.crossMap, colors.ranged, scale, y + 0.004, opacity);
     }
   }
@@ -623,9 +714,28 @@ export class GameView {
       for (const rect of abyssRects) {
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(rect.x1 - rect.x0, rect.z1 - rect.z0), voidMat);
         pad.rotation.x = -Math.PI / 2;
-        pad.position.set((rect.x0 + rect.x1) / 2, -THICKNESS - 0.08, (rect.z0 + rect.z1) / 2);
+        pad.position.set((rect.x0 + rect.x1) / 2, (-THICKNESS - 0.08) * 0.5, (rect.z0 + rect.z1) / 2);
         pad.userData.ownGeometry = true;
         this.boardRoot.add(pad);
+      }
+      const railT = 0.042;
+      const railH = 0.1;
+      const railGeo = createBoardFrameGeometry(abyssRects, railT, railH);
+      if (railGeo) {
+        const rail = new THREE.Mesh(
+          railGeo,
+          new THREE.MeshStandardMaterial({
+            color: 0x2c2118,
+            map: this.woodDark,
+            roughness: 0.72,
+            metalness: 0.08,
+          })
+        );
+        rail.position.y = -0.012;
+        rail.castShadow = true;
+        rail.receiveShadow = true;
+        rail.userData.ownGeometry = true;
+        this.boardRoot.add(rail);
       }
     }
     const frameT = 0.22;
@@ -787,14 +897,19 @@ export class GameView {
         const group = new THREE.Group();
         group.userData.unitId = unit.unitId;
         this.scene.add(group);
-        actor = { group, traveling: false };
+        actor = { group, traveling: false, ownerId: unit.ownerId };
         this.pieces.set(unit.unitId, actor);
         void this.loadPiece(actor, unit);
       }
       if (snap && !actor.traveling) {
-        actor.group.position.copy(nodeCenter(state, unit.currentNodeId));
+        actor.group.position.copy(pieceCenter(state, unit));
       }
       actor.group.rotation.y = unit.ownerId === 0 ? 0 : Math.PI;
+      if (actor.ownerId !== unit.ownerId) {
+        actor.ownerId = unit.ownerId;
+        this.tint(actor.group, unit.ownerId, unit.definitionId);
+      }
+      this.applyShadowLook(actor.group, unit);
       this.syncForcefield(actor, unit);
       this.syncHeldItem(actor, unit);
     }
@@ -1028,6 +1143,7 @@ export class GameView {
   private async loadPiece(actor: PieceActor, unit: UnitState): Promise<void> {
     const { visual, gltf } = await this.buildVisual(unit);
     actor.group.add(visual);
+    this.applyShadowLook(actor.group, unit);
     if (gltf?.animations.length) {
       actor.mixer = new THREE.AnimationMixer(visual);
       actor.move = resolveClip(gltf.animations, "Move", true);
@@ -1149,6 +1265,21 @@ export class GameView {
         return cloned;
       });
       mesh.material = next.length === 1 ? next[0] : next;
+    });
+  }
+
+  private applyShadowLook(root: THREE.Object3D, unit: UnitState): void {
+    const ghost = !!unit.inShadow;
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || this.isDecorMesh(child)) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        const std = mat as THREE.MeshStandardMaterial;
+        std.transparent = ghost;
+        std.opacity = ghost ? 0.55 : 1;
+        std.depthWrite = !ghost;
+      }
     });
   }
 
@@ -1325,6 +1456,21 @@ export class GameView {
     });
     this.scene.remove(group);
     this.itemMeshes.delete(itemId);
+  }
+
+  private async playSwap(prev: PublicState, next: PublicState, action: ActionExecution): Promise<void> {
+    const color = new THREE.Color(SCROLL_SPARK.SwapCharm);
+    const from = nodeCenter(prev, action.originNode);
+    const to = action.destNode != null ? nodeCenter(prev, action.destNode) : from;
+    const actor = this.pieces.get(action.unitId);
+    const other = action.swappedUnitId != null ? this.pieces.get(action.swappedUnitId) : undefined;
+    await Promise.all([
+      this.playSparkBurst(from.clone().setY(0.48), color),
+      this.playSparkBurst(to.clone().setY(0.48), color),
+      actor ? this.travel(actor, from, to, false) : Promise.resolve(),
+      other ? this.travel(other, to, from, false) : Promise.resolve(),
+    ]);
+    this.setState(next);
   }
 
   private async playScrollUse(prev: PublicState, next: PublicState, action: ActionExecution): Promise<void> {
@@ -1554,6 +1700,38 @@ export class GameView {
       pad.geometry.dispose();
       (pad.material as THREE.Material).dispose();
     }
+  }
+
+  private async playPitFall(unitId: number): Promise<void> {
+    const actor = this.pieces.get(unitId);
+    if (!actor) return;
+    actor.group.userData.dying = true;
+    actor.mixer?.stopAllAction();
+    if (actor.forcefield) {
+      actor.group.remove(actor.forcefield);
+      actor.forcefield = undefined;
+      actor.fieldMat = undefined;
+    }
+    const start = actor.group.position.clone();
+    const end = start.clone();
+    end.y -= 2.6;
+    await this.tween(0.55, (t) => {
+      const e = t * t;
+      actor.group.position.lerpVectors(start, end, e);
+      actor.group.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) {
+          const m = mat as THREE.Material;
+          m.transparent = true;
+          m.depthWrite = false;
+          m.opacity = 1 - e * 0.85;
+        }
+      });
+    });
+    this.scene.remove(actor.group);
+    this.pieces.delete(unitId);
   }
 
   private async playDeath(unitId: number): Promise<void> {
@@ -1787,7 +1965,13 @@ export class GameView {
     }
     const unitId = this.pickUnitId();
     if (unitId != null) {
-      const node = this.state?.units.find((u) => u.unitId === unitId)?.currentNodeId;
+      const unit = this.state?.units.find((u) => u.unitId === unitId);
+      if (unit?.inShadow) {
+        this.onUnitClick?.(unitId);
+        this.emitHover(event);
+        return;
+      }
+      const node = unit?.currentNodeId;
       if (typeof node === "number") {
         this.onTileClick?.(node);
         this.emitHover(event);
@@ -1817,7 +2001,7 @@ export class GameView {
 }
 
 export function unitOnNode(state: PublicState, nodeId: number): UnitState | undefined {
-  return state.units.find((u) => u.isAlive && u.currentNodeId === nodeId);
+  return principalOn(state.units, nodeId);
 }
 
 export function itemOnNode(state: PublicState, nodeId: number): ItemState | undefined {

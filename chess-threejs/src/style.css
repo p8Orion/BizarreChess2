@@ -1021,6 +1021,26 @@ label.board select {
   filter: brightness(1.12);
 }
 
+.action-swap {
+  background: #a24aad;
+  color: #f8e8fb;
+}
+
+.action-swap.is-armed {
+  outline: 2px solid #f4ead7;
+  filter: brightness(1.12);
+}
+
+.action-shadow {
+  background: #3a2060;
+  color: #e8d8ff;
+}
+
+.action-stab {
+  background: #8a1a2a;
+  color: #f8e8e8;
+}
+
 .action-drop {
   background: #7a6a4e;
   color: #f4ead7;

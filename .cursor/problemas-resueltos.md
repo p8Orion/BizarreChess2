@@ -5,6 +5,26 @@ Registro vivo de incidentes y soluciones de **este proyecto**.
 
 ---
 
+## 2026-09-07 — Priest: conversión se guardaba en el army
+
+**Síntoma:** Una pieza wololo quedaba en el roster para la partida siguiente.
+**Contexto:** `applyState` llama `persistLocalRoster` → `syncArmyFromUnits`. Esa función toma cualquier unidad viva con `ownerId` tuyo y `rosterRow`/`rosterX`.
+**Causa:** La conversión solo cambiaba `ownerId`. El convertido seguía con las coords de roster del rival; `findSlot` podía pisar un slot tuyo (mismo row/x/definición) o colar ítem/definición ajenos.
+**Solución:** Al convertir, marcar `convertedThisMatch` y borrar `pieceId`/`rosterRow`/`rosterX`. `syncArmyFromUnits` ignora esas unidades.
+**Prevención:** Cambio de dueño in-match no es identidad de roster. No persistir unidades convertidas.
+
+---
+
+## 2026-09-07 — Editor de army no guardaba piezas
+
+**Síntoma:** En una copia sin partidas, el dropdown del editor muestra Pusher (y el resto) pero al elegir no cambia nada.
+**Contexto:** `setArmySlot` → `saveUser` → `normalizeUser` corre `migrateMiniBizarre` siempre.
+**Causa:** La migración tomaba “sin pieceId” como “sin customizar” y pisaba el roster con el template de Mini Bizarre.
+**Solución:** Migración one-shot (`USER_STORE_VERSION` 5). No resetear slots si el army ya no matchea el catálogo viejo/actual.
+**Prevención:** Migraciones de roster no pueden correr en cada save.
+
+---
+
 ## 2026-09-06 — Republicar Three.js en el VPS
 
 **Síntoma:** Hay que subir el port a `/chess` sin tocar el resto del server.

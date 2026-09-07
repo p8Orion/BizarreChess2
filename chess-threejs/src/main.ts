@@ -11,11 +11,12 @@ import {
 import { Draft, DRAFT_PICK_MODES, clampBanCount, normalizeDraftConfig, type DraftPickModeId, type DraftUniq } from "./core/draft";
 import { defaultBoardForFormat, type ArmyFormat, type MatchMode } from "./core/format";
 import { Game, actionNotice, previewNodesForAction, type ActionExecution, type MoveExecution } from "./core/gameState";
+import { actionCooldownLabel, actionReady } from "./core/cooldown";
 import { itemIsSpent, itemUsesLabel, pickupActionLabel } from "./core/items";
 import { boardsForFormat, boardSupportsFormat } from "./core/board";
 import { clampDecorAmount } from "./core/boardDecor";
 import { allTargets, GameEndReason, GamePhase, PublicState, UnitState } from "./core/types";
-import { movesForUnit, transmutationTargets } from "./core/validator";
+import { movesForUnit } from "./core/validator";
 import { NetClient } from "./net/client";
 import type { BoardKind } from "./net/protocol";
 import {
@@ -427,11 +428,11 @@ function pickupUnitId(): number | null {
   const state = publicState;
   if (!state || state.phase !== GamePhase.Playing || !canAct()) return null;
   const selected = selectedUnit();
-  if (selected && canSelect(selected) && !selected.heldItem && itemOnNode(state, selected.currentNodeId)) {
+  if (selected && canSelect(selected) && !selected.heldItem && !selected.inShadow && itemOnNode(state, selected.currentNodeId)) {
     return selected.unitId;
   }
   const standing = state.units.find(
-    (u) => canSelect(u) && !u.heldItem && itemOnNode(state, u.currentNodeId)
+    (u) => canSelect(u) && !u.inShadow && !u.heldItem && itemOnNode(state, u.currentNodeId)
   );
   return standing?.unitId ?? null;
 }
@@ -449,7 +450,7 @@ function refreshPickup(): void {
 
 function inspectActions(unit: UnitState): { id: string; label: string; run?: () => void }[] {
   const actions: { id: string; label: string; run?: () => void }[] = [];
-  if (publicState && !unit.heldItem) {
+  if (publicState && !unit.heldItem && !unit.inShadow) {
     const item = itemOnNode(publicState, unit.currentNodeId);
     if (item) {
       const can = canAct() && canSelect(unit);
@@ -464,17 +465,26 @@ function inspectActions(unit: UnitState): { id: string; label: string; run?: () 
     const can = canAct() && canSelect(unit);
     const spent = action.id === unit.heldItem?.kind && !!unit.heldItem && itemIsSpent(unit.heldItem);
     const uses = action.id === unit.heldItem?.kind && unit.heldItem ? itemUsesLabel(unit.heldItem) : null;
-    const run =
-      action.id === "TransmuteScroll"
-        ? () => beginTargetedAction(unit.unitId, action.id)
-        : () => tryAction(unit.unitId, action.id);
+    const cd = actionCooldownLabel(action);
+    const targeted = action.id === "TransmuteScroll" || action.id === "SwapCharm";
+    const run = targeted
+      ? () => beginTargetedAction(unit.unitId, action.id)
+      : () => tryAction(unit.unitId, action.id);
+    let label = action.label;
+    if (uses) label = `${label} (${uses})`;
+    if (cd) label = `${label} (${cd})`;
+    if (action.free) label = `${label} · free`;
+    const victim = publicState ? publicState.units.find((u) => u.isAlive && !u.inShadow && u.currentNodeId === unit.currentNodeId && u.ownerId !== unit.ownerId) : undefined;
+    const situational =
+      (action.id === "EnterShadow" && !!unit.inShadow) ||
+      (action.id === "Stab" && (!unit.inShadow || !victim));
     actions.push({
       id: action.id,
-      label: uses ? `${action.label} (${uses})` : action.label,
-      run: can && !spent ? run : undefined,
+      label,
+      run: can && !spent && actionReady(action) && !situational ? run : undefined,
     });
   }
-  if (unit.heldItem) {
+  if (unit.heldItem && !unit.inShadow) {
     const blocked = !!publicState && !!itemOnNode(publicState, unit.currentNodeId);
     const can = canAct() && canSelect(unit) && !blocked;
     actions.push({
@@ -490,7 +500,7 @@ function actionPortraitItem(unit: UnitState, actionId: string) {
   if (actionId === "pickup") {
     return publicState ? itemOnNode(publicState, unit.currentNodeId) : undefined;
   }
-  if (actionId === "drop" || actionId === "Bomb" || actionId === "EscapeScroll" || actionId === "TransmuteScroll") {
+  if (actionId === "drop" || actionId === "Bomb" || actionId === "EscapeScroll" || actionId === "TransmuteScroll" || actionId === "SwapCharm") {
     return unit.heldItem ?? undefined;
   }
   return undefined;
@@ -505,12 +515,14 @@ function renderActions(el: HTMLElement, unit: UnitState | undefined): void {
     if (action.id === "pickup") btn.className = "action-pickup";
     if (action.id === "Bomb") btn.className = "action-ignite";
     if (action.id === "EscapeScroll") btn.className = "action-escape";
-    if (action.id === "TransmuteScroll") {
-      btn.className = "action-transmute";
+    if (action.id === "TransmuteScroll" || action.id === "SwapCharm") {
+      btn.className = action.id === "SwapCharm" ? "action-swap" : "action-transmute";
       if (pendingAction?.unitId === unit.unitId && pendingAction.actionId === action.id) {
         btn.classList.add("is-armed");
       }
     }
+    if (action.id === "EnterShadow") btn.className = "action-shadow";
+    if (action.id === "Stab") btn.className = "action-stab";
     if (action.id === "drop") btn.className = "action-drop";
     const portrait = actionPortraitItem(unit, action.id);
     if (portrait) {
@@ -538,7 +550,7 @@ function renderActions(el: HTMLElement, unit: UnitState | undefined): void {
 function showActionPreview(unit: UnitState, actionId: string): void {
   if (!publicState) return;
   const nodes = previewNodesForAction(actionId, boardFromState(publicState), unit.currentNodeId, unit, publicState.units);
-  view.setAbilityHighlights(nodes, actionId === "TransmuteScroll" ? "#9a8b6e" : "#ff6a3d");
+  view.setAbilityHighlights(nodes, actionId === "TransmuteScroll" ? "#9a8b6e" : actionId === "SwapCharm" ? "#c45ec8" : "#ff6a3d");
 }
 
 function hideActionPreview(): void {
@@ -550,16 +562,20 @@ function beginTargetedAction(unitId: number, actionId: string): void {
   if (!publicState) return;
   const unit = publicState.units.find((item) => item.unitId === unitId);
   if (!unit) return;
-  if (actionId === "TransmuteScroll") {
-    if (unit.heldItem?.kind === "TransmuteScroll" && itemIsSpent(unit.heldItem)) {
-      refreshHud("No uses left");
-      return;
-    }
-    const spots = transmutationTargets(boardFromState(publicState), unit, publicState.units);
-    if (!spots.length) {
-      refreshHud("No empty square this piece can attack");
-      return;
-    }
+  if (unit.heldItem?.kind === actionId && itemIsSpent(unit.heldItem)) {
+    refreshHud("No uses left");
+    return;
+  }
+  const spots = previewNodesForAction(
+    actionId,
+    boardFromState(publicState),
+    unit.currentNodeId,
+    unit,
+    publicState.units
+  );
+  if (!spots.length) {
+    refreshHud(actionId === "SwapCharm" ? "No adjacent piece to swap with" : "No empty square this piece can attack");
+    return;
   }
   if (pendingAction?.unitId === unitId && pendingAction.actionId === actionId) {
     pendingAction = null;
@@ -570,7 +586,7 @@ function beginTargetedAction(unitId: number, actionId: string): void {
   pendingAction = { unitId, actionId };
   selectedUnitId = unitId;
   refreshHighlights();
-  refreshHud("Choose an empty square this piece can attack");
+  refreshHud(actionId === "SwapCharm" ? "Choose an adjacent piece" : "Choose an empty square this piece can attack");
 }
 
 function selectedUnit(): UnitState | undefined {
@@ -761,11 +777,17 @@ function refreshHighlights(): void {
   if (pendingAction && pendingAction.unitId === unit.unitId) {
     view.setHighlights(null);
     const board = boardFromState(publicState);
-    const spots =
-      pendingAction.actionId === "TransmuteScroll"
-        ? transmutationTargets(board, unit, publicState.units)
-        : previewNodesForAction(pendingAction.actionId, board, unit.currentNodeId, unit, publicState.units);
-    view.setAbilityHighlights(spots, "#9a8b6e");
+    const spots = previewNodesForAction(
+      pendingAction.actionId,
+      board,
+      unit.currentNodeId,
+      unit,
+      publicState.units
+    );
+    view.setAbilityHighlights(
+      spots,
+      pendingAction.actionId === "SwapCharm" ? "#c45ec8" : "#9a8b6e"
+    );
   } else if (canSelect(unit)) {
     view.setAbilityHighlights(null);
     const board = boardFromState(publicState);
@@ -854,20 +876,22 @@ function resign(): void {
 
 function tryAction(unitId: number, actionId: string, targetNode?: number): void {
   pendingAction = null;
+  const actor = publicState?.units.find((u) => u.unitId === unitId);
+  const free = actor?.actions.some((a) => a.id === actionId && a.free);
+  if (!free) selectedUnitId = null;
   if (mode === "offline" && game && publicState) {
     const prev = publicState;
     const result = game.tryAction(unitId, actionId, actorId(), targetNode);
-    selectedUnitId = null;
     if (!result.success) {
       applyState(game.toPublic(), result.error);
       return;
     }
+    if (!result.free) selectedUnitId = null;
     const notice = actionNotice(result);
     void applyAction(prev, game.toPublic(), result, notice);
     return;
   }
   if (mode === "online") {
-    selectedUnitId = null;
     try {
       net.send({ type: "action", unitId, actionId, targetNode });
     } catch (err) {
@@ -929,12 +953,23 @@ view.onItemClick = (itemId, nodeId) => {
     selectedUnitId != null
       ? publicState.units.find((u) => u.unitId === selectedUnitId)
       : unitOnNode(publicState, nodeId);
-  if (unit && canSelect(unit) && canAct() && unit.currentNodeId === nodeId && !unit.heldItem) {
+  if (unit && !unit.inShadow && canSelect(unit) && canAct() && unit.currentNodeId === nodeId && !unit.heldItem) {
     tryPickup(unit.unitId);
     return;
   }
   view.onTileClick?.(nodeId);
   void itemId;
+};
+
+view.onUnitClick = (unitId) => {
+  if (!publicState || view.busy) return;
+  if (publicState.phase === GamePhase.Setup) return;
+  const unit = publicState.units.find((u) => u.unitId === unitId);
+  if (!unit || !unit.isAlive || !canSelect(unit)) return;
+  pendingAction = null;
+  if (selectedUnitId === unitId) selectedUnitId = null;
+  else selectedUnitId = unitId;
+  refreshHighlights();
 };
 
 view.onTileClick = (nodeId) => {
@@ -946,7 +981,13 @@ view.onTileClick = (nodeId) => {
   const selected = selectedUnit();
 
   if (pendingAction && selected && selected.unitId === pendingAction.unitId) {
-    const spots = transmutationTargets(boardFromState(publicState), selected, publicState.units);
+    const spots = previewNodesForAction(
+      pendingAction.actionId,
+      boardFromState(publicState),
+      selected.currentNodeId,
+      selected,
+      publicState.units
+    );
     if (spots.includes(nodeId)) {
       tryAction(pendingAction.unitId, pendingAction.actionId, nodeId);
       return;
@@ -957,17 +998,23 @@ view.onTileClick = (nodeId) => {
       refreshHighlights();
       return;
     }
-    refreshHud("Choose an empty square this piece can attack");
+    refreshHud(
+      pendingAction.actionId === "SwapCharm"
+        ? "Choose an adjacent piece"
+        : "Choose an empty square this piece can attack"
+    );
     return;
   }
 
   if (occupant) {
-    if (canAct() && canSelect(occupant) && selected?.unitId === occupant.unitId && item && !occupant.heldItem) {
-      tryPickup(occupant.unitId);
+    if (canAct() && selected && canSelect(selected) && selected.unitId !== occupant.unitId && isLegalTarget(selected, nodeId)) {
+      issueMove(selected.unitId, nodeId);
       return;
     }
-    if (canAct() && selected && canSelect(selected) && !canSelect(occupant) && isLegalTarget(selected, nodeId)) {
-      issueMove(selected.unitId, nodeId);
+    if (selected?.unitId === occupant.unitId) {
+      pendingAction = null;
+      selectedUnitId = null;
+      refreshHighlights();
       return;
     }
     pendingAction = null;
@@ -980,6 +1027,12 @@ view.onTileClick = (nodeId) => {
   }
 
   if (canAct() && selected && canSelect(selected)) {
+    if (selected.currentNodeId === nodeId) {
+      pendingAction = null;
+      selectedUnitId = null;
+      refreshHighlights();
+      return;
+    }
     issueMove(selected.unitId, nodeId);
     return;
   }

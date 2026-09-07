@@ -66,6 +66,15 @@ export const ITEMS = {
     tier: 2,
     maxUses: 2,
   },
+  SwapCharm: {
+    displayName: "Swap Charm",
+    description: "1 use, free: swap places with an adjacent piece (friend or foe). Does not spend this turn.",
+    dropOnDeath: true,
+    color: "#c45ec8",
+    shape: "sphere",
+    tier: 2,
+    maxUses: 1,
+  },
 } satisfies Record<string, ItemSpec>;
 
 export type ItemKind = keyof typeof ITEMS;
@@ -134,11 +143,13 @@ export function createBomb(nodeId: number): ItemState {
 
 export function catalogStartingItem(definitionId: string): { displayName: string } | null {
   if (definitionId === "Bomber") return { displayName: "Bomb" };
+  if (definitionId === "Crossbowman") return { displayName: "Crossbow" };
   return null;
 }
 
 export function startingHeldItem(definitionId: string): ItemState | null {
   if (definitionId === "Bomber") return createBomb(-1);
+  if (definitionId === "Crossbowman") return createCrossbow(-1);
   return null;
 }
 
@@ -148,6 +159,10 @@ export function createTransmuteScroll(nodeId: number): ItemState {
 
 export function createEscapeScroll(nodeId: number): ItemState {
   return spawnItem("EscapeScroll", nodeId);
+}
+
+export function createSwapCharm(nodeId: number): ItemState {
+  return spawnItem("SwapCharm", nodeId);
 }
 
 export function createCrossbow(nodeId: number): ItemState {
@@ -185,7 +200,14 @@ export function defaultBoardItems(
   height = 8,
   preferred?: number[]
 ): ItemState[] {
-  const makers = [createCrossbow, createForceFieldGenerator, createBomb, createEscapeScroll, createTransmuteScroll];
+  const makers = [
+    createCrossbow,
+    createForceFieldGenerator,
+    createBomb,
+    createEscapeScroll,
+    createTransmuteScroll,
+    createSwapCharm,
+  ];
   const useWings = !!preferred?.length;
   const pool = useWings ? shuffleInPlace([...preferred!]) : itemHomeTiles(width, height);
   const chosen: number[] = [];
@@ -207,7 +229,14 @@ export function defaultBoardItems(
 
 /** Place one shuffled catalog item on each tile (used by board decor recipes). */
 export function placeBoardItems(tiles: number[], passable?: (nodeId: number) => boolean): ItemState[] {
-  const makers = [createCrossbow, createForceFieldGenerator, createBomb, createEscapeScroll, createTransmuteScroll];
+  const makers = [
+    createCrossbow,
+    createForceFieldGenerator,
+    createBomb,
+    createEscapeScroll,
+    createTransmuteScroll,
+    createSwapCharm,
+  ];
   const spots = tiles.filter((id) => !passable || passable(id));
   if (!spots.length) return [];
   const assign = shuffleInPlace([...makers]);
@@ -243,6 +272,12 @@ export function applyItemPick(unit: UnitState, item: ItemState): void {
     unit.actions ??= [];
     if (!unit.actions.some((a) => a.id === "TransmuteScroll")) {
       unit.actions = [...unit.actions, { id: "TransmuteScroll", label: "Turn to stone" }];
+    }
+  }
+  if (item.kind === "SwapCharm") {
+    unit.actions ??= [];
+    if (!unit.actions.some((a) => a.id === "SwapCharm")) {
+      unit.actions = [...unit.actions, { id: "SwapCharm", label: "Swap", free: true }];
     }
   }
 }
@@ -289,6 +324,9 @@ export function applyItemDrop(unit: UnitState, item: ItemState): void {
   }
   if (item.kind === "TransmuteScroll") {
     unit.actions = (unit.actions ?? []).filter((a) => a.id !== "TransmuteScroll");
+  }
+  if (item.kind === "SwapCharm") {
+    unit.actions = (unit.actions ?? []).filter((a) => a.id !== "SwapCharm");
   }
 }
 

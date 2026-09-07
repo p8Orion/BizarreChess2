@@ -8,7 +8,7 @@ import { normalizeDecorAmounts } from "../src/core/boardDecor";
 import { armyByKind } from "../src/core/pieces";
 import type { BoardKind } from "../src/core/types";
 import type { PlayerStyle } from "../src/core/colors";
-import type { ClientMessage, PublicDraft, ServerMessage } from "../src/net/protocol";
+import type { ClientMessage, PublicDraft, ServerMessage, StateMessage } from "../src/net/protocol";
 
 const PORT = 8787;
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -43,11 +43,28 @@ function makeCode(): string {
   return `R${Date.now().toString(36).slice(-5).toUpperCase()}`;
 }
 
-function broadcast(room: Room, notice?: string): void {
+function pushState(room: Room, extra: Omit<StateMessage, "type" | "state"> = {}): void {
   if (!room.game) return;
-  const message: ServerMessage = { type: "state", state: room.game.toPublic(), notice };
-  send(room.host, message);
-  if (room.guest) send(room.guest, message);
+  const deliver = (ws: WebSocket | null, playerId: number) => {
+    if (!ws) return;
+    const lastMove = extra.lastMove ? room.game!.sanitizeMove(extra.lastMove, playerId) : undefined;
+    const lastAction = extra.lastAction ? room.game!.sanitizeAction(extra.lastAction, playerId) : undefined;
+    send(ws, {
+      type: "state",
+      state: room.game!.toPublic(playerId),
+      notice: extra.notice,
+      lastMove,
+      lastPickup: extra.lastPickup,
+      lastDrop: extra.lastDrop,
+      lastAction,
+    });
+  };
+  deliver(room.host, 0);
+  deliver(room.guest, 1);
+}
+
+function broadcast(room: Room, notice?: string): void {
+  pushState(room, { notice });
 }
 
 function broadcastDraft(room: Room): void {
@@ -76,9 +93,7 @@ function startMatchFromDraft(room: Room): void {
     symmetricObstacles: room.symmetricObstacles,
   });
   room.draft = null;
-  const message: ServerMessage = { type: "state", state: room.game.toPublic(), notice: "Draft complete" };
-  send(room.host, message);
-  if (room.guest) send(room.guest, message);
+  pushState(room, { notice: "Draft complete" });
 }
 
 function leave(ws: WebSocket): void {
@@ -166,7 +181,7 @@ wss.on("connection", (ws) => {
       };
       rooms.set(code, room);
       sockets.set(ws, { room, playerId: 0 });
-      send(ws, { type: "hosted", code, playerId: 0, state: game.toPublic() });
+      send(ws, { type: "hosted", code, playerId: 0, state: game.toPublic(0) });
       return;
     }
 
@@ -199,8 +214,8 @@ wss.on("connection", (ws) => {
         return;
       }
       if (msg.roster) room.game.replaceArmy(1, msg.roster);
-      send(ws, { type: "joined", code: room.code, playerId: 1, state: room.game.toPublic() });
-      send(room.host, { type: "state", state: room.game.toPublic(), notice: "Opponent joined" });
+      send(ws, { type: "joined", code: room.code, playerId: 1, state: room.game.toPublic(1) });
+      send(room.host, { type: "state", state: room.game.toPublic(0), notice: "Opponent joined" });
       return;
     }
 
@@ -245,9 +260,7 @@ wss.on("connection", (ws) => {
         : result.gameEnded
           ? result.endReason
           : undefined;
-      const message: ServerMessage = { type: "state", state: seat.room.game.toPublic(), notice, lastMove: result };
-      send(seat.room.host, message);
-      if (seat.room.guest) send(seat.room.guest, message);
+      pushState(seat.room, { notice, lastMove: result });
       return;
     }
 
@@ -257,14 +270,7 @@ wss.on("connection", (ws) => {
         send(ws, { type: "error", message: result.error ?? "Cannot pick up" });
         return;
       }
-      const message: ServerMessage = {
-        type: "state",
-        state: seat.room.game.toPublic(),
-        notice: "Picked up Force Field Generator",
-        lastPickup: result,
-      };
-      send(seat.room.host, message);
-      if (seat.room.guest) send(seat.room.guest, message);
+      pushState(seat.room, { notice: "Picked up Force Field Generator", lastPickup: result });
       return;
     }
 
@@ -274,14 +280,7 @@ wss.on("connection", (ws) => {
         send(ws, { type: "error", message: result.error ?? "Cannot drop" });
         return;
       }
-      const message: ServerMessage = {
-        type: "state",
-        state: seat.room.game.toPublic(),
-        notice: "Dropped item",
-        lastDrop: result,
-      };
-      send(seat.room.host, message);
-      if (seat.room.guest) send(seat.room.guest, message);
+      pushState(seat.room, { notice: "Dropped item", lastDrop: result });
       return;
     }
 
@@ -292,9 +291,7 @@ wss.on("connection", (ws) => {
         return;
       }
       const notice = actionNotice(result);
-      const message: ServerMessage = { type: "state", state: seat.room.game.toPublic(), notice, lastAction: result };
-      send(seat.room.host, message);
-      if (seat.room.guest) send(seat.room.guest, message);
+      pushState(seat.room, { notice, lastAction: result });
       return;
     }
 

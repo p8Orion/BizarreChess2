@@ -138,8 +138,9 @@ function normalizeUser(raw: unknown): PersistedUser {
   if (!raw || typeof raw !== "object") return fallback;
   const o = raw as Partial<PersistedUser>;
   const rawVersion = typeof o.version === "number" ? o.version : 0;
-  const rawArmies = Array.isArray(o.armies) && o.armies.length > 0 ? o.armies.map(normalizeArmy).map(migrateMiniBizarre) : fallback.armies;
-  const { armies, remap } = ensureCatalogDefaults(rawArmies);
+  const rawArmies = Array.isArray(o.armies) && o.armies.length > 0 ? o.armies.map(normalizeArmy) : fallback.armies;
+  const migrated = rawVersion < 5 ? rawArmies.map(migrateMiniBizarre) : rawArmies;
+  const { armies, remap } = ensureCatalogDefaults(migrated);
   const pieces = Array.isArray(o.pieces) ? o.pieces.filter(isPiece) : [];
   const preferred = rawVersion < 2 ? defaultArmyId(armies) : "";
   const requested = typeof o.activeArmyId === "string" ? remap.get(o.activeArmyId) ?? o.activeArmyId : "";
@@ -196,10 +197,33 @@ function normalizeSettings(raw: unknown, storeVersion = USER_STORE_VERSION): Use
   };
 }
 
+function isStaleMiniBizarreLayout(army: PersistedArmy): boolean {
+  if (STALE_DEFAULT_NAMES.has(army.name)) return true;
+  const have = new Set(army.slots.map(slotKey));
+  const stale = [
+    ["Cannon", "Crossbowman", "King", "Camel"],
+    ["Cannon", "Crossbowman", "King", "Rook"],
+  ];
+  const fronts = [
+    ["Pawn", "Pawn", "Pawn", "Pawn"],
+    ["Lancer", "Defender", "Bomber", "Pawn"],
+  ];
+  for (const back of stale) {
+    for (const front of fronts) {
+      const want = new Set([
+        ...back.map((piece, x) => `back:${x}:${piece}`),
+        ...front.map((piece, x) => `front:${x}:${piece}`),
+      ]);
+      if (want.size === have.size && [...want].every((key) => have.has(key))) return true;
+    }
+  }
+  return false;
+}
+
 function migrateMiniBizarre(army: PersistedArmy): PersistedArmy {
   if (army.basedOn !== "mini-bizarre") return army;
-  const customized = army.slots.some((slot) => slot.pieceId);
-  if (customized) {
+  if (army.slots.some((slot) => slot.pieceId)) {
+    if (!isStaleMiniBizarreLayout(army)) return army;
     const slots = army.slots.map((slot) => {
       if (slot.row === "back" && slot.definitionId === "Rook") return { ...slot, definitionId: "Camel" };
       if (slot.row === "front" && slot.x === 2 && slot.definitionId === "Pawn" && !slot.pieceId) {
@@ -209,8 +233,9 @@ function migrateMiniBizarre(army: PersistedArmy): PersistedArmy {
     });
     return { ...army, slots };
   }
+  if (!army.isDefault && !matchesCatalog(army) && !isStaleMiniBizarreLayout(army)) return army;
   const fresh = copyArmyFromTemplate("mini-bizarre");
-  const staleName = army.name === "Mini Bizarre — Cannon Crossbow King Camel + 4 pawns" || army.name === "Mini Bizarre";
+  const staleName = STALE_DEFAULT_NAMES.has(army.name);
   return {
     ...army,
     name: staleName ? fresh.name : army.name,
@@ -353,7 +378,9 @@ export function duplicateArmy(armyId: string): PersistedUser {
 export function syncArmyFromUnits(user: PersistedUser, armyId: string, units: UnitState[], ownerId: number): PersistedUser {
   const army = user.armies.find((a) => a.id === armyId);
   if (!army || army.isDefault) return user;
-  const mine = units.filter((u) => u.ownerId === ownerId && u.rosterRow != null && u.rosterX != null);
+  const mine = units.filter(
+    (u) => u.ownerId === ownerId && !u.convertedThisMatch && u.rosterRow != null && u.rosterX != null
+  );
   for (const unit of mine) {
     const slot = findSlot(army.slots, unit);
     if (!slot) continue;

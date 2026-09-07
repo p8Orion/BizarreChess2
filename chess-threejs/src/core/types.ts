@@ -55,6 +55,22 @@ export interface MovementPattern {
    * The hurdle is never captured; only the landing square is a target.
    */
   hopBeyond: number;
+  /**
+   * If > 0, landing on a piece pushes it this many squares in the same direction.
+   * -1 or 99 = as far as it can go. 0 = not a pusher.
+   */
+  pushDistance: number;
+  /** If true, adjacent enemies are converted (owner flip) instead of captured. The converter stays put. */
+  converts: boolean;
+  /** Land on an occupied square: capture an enemy principal, share with a friendly principal. */
+  canEnterOccupied: boolean;
+  /** Land on an occupied square without capturing (friend or foe). */
+  canShare: boolean;
+  /**
+   * Sliding rays continue through occupied squares (friend or foe).
+   * Pits and mountains still stop the ray. Distinct from canJump: leapers fly over abyss.
+   */
+  passesUnits: boolean;
   /** If set, this pattern was granted by an item and can be removed on drop. */
   grantedBy?: string;
 }
@@ -72,6 +88,11 @@ export function pattern(partial: Partial<MovementPattern> & { type: MovementType
     leapY: 0,
     axes: [],
     hopBeyond: 0,
+    pushDistance: 0,
+    converts: false,
+    canEnterOccupied: false,
+    canShare: false,
+    passesUnits: false,
     ...partial,
   };
 }
@@ -88,6 +109,17 @@ export interface SkillState {
 export interface UnitAction {
   id: string;
   label: string;
+  /** Does not mark the piece as having acted and does not end the turn. */
+  free?: boolean;
+  /** Turns remaining. 0 = ready. -1 = locked until a reset trigger. Omitted = no cooldown. */
+  cooldown?: number;
+  /** Value applied when a reset trigger starts this cooldown counting. */
+  maxCooldown?: number;
+  /** After a successful use, set this action's cooldown (-1 = lock). */
+  cooldownAfterUse?: number;
+  /** After a successful use, set another action's cooldown. */
+  resetActionId?: string;
+  resetActionTo?: number | "max";
 }
 
 export interface UnitDefinition {
@@ -99,6 +131,8 @@ export interface UnitDefinition {
   patterns: MovementPattern[];
   skills: SkillState[];
   actions: UnitAction[];
+  /** Spawns and stays in shadow space (invisible to the opponent). */
+  inShadow?: boolean;
 }
 
 export interface ItemState {
@@ -137,6 +171,10 @@ export interface UnitState {
   pieceId?: string;
   rosterRow?: "back" | "front";
   rosterX?: number;
+  /** Wololo: belongs to a new owner this match only. Not written back to a roster. */
+  convertedThisMatch?: boolean;
+  /** Secondary occupant of the tile. Does not block. Point targets ignore it; area effects do not. */
+  inShadow?: boolean;
 }
 
 export interface NodeDef {
@@ -260,14 +298,16 @@ export interface MoveTargets {
   captureOnly: number[];
   both: number[];
   rangedCapture: number[];
+  push: number[];
+  convert: number[];
 }
 
 export function emptyTargets(): MoveTargets {
-  return { moveOnly: [], captureOnly: [], both: [], rangedCapture: [] };
+  return { moveOnly: [], captureOnly: [], both: [], rangedCapture: [], push: [], convert: [] };
 }
 
 export function allTargets(t: MoveTargets): number[] {
-  return [...t.moveOnly, ...t.captureOnly, ...t.both, ...t.rangedCapture];
+  return [...t.moveOnly, ...t.captureOnly, ...t.both, ...t.rangedCapture, ...t.push, ...t.convert];
 }
 
 export interface PublicState {

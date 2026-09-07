@@ -9,7 +9,13 @@ const BLURBS: Record<string, string> = {
   Bishop: "Any number of squares diagonally.",
   Knight: "Leaps in an L (2×1). Jumps over pieces.",
   Camel: "Leaps in a long L (3×1). Jumps over pieces.",
-  Crossbowman: "Steps one square in any direction without capturing. Shoots diagonally up to 3 squares and stays put.",
+  Crossbowman: "Steps one square in any direction without capturing.",
+  Pusher:
+    "Steps one square in any direction. If that square is occupied, pushes that piece (friend or foe) as far as it can go. Edges, other pieces, and mountains stop it. A piece pushed into a pit dies.",
+  Priest:
+    "Steps one square in any direction. Converts an adjacent enemy (not the King) to your side; the Priest stays put. A force field blocks the conversion.",
+  Assassin:
+    "Moves up to 2 squares diagonally, passing through pieces but not pits. Enter shadows to hide (does not block the square). While hidden, you can land on an occupied square and Stab the piece sharing it: a kill reveals you there; a force field kills the assassin. Enter shadows locks until you stab, then a 3-turn cooldown.",
   Cannon: "Steps one square orthogonally without capturing. Shoots orthogonally at range 2–4 and stays put.",
   Grasshopper:
     "Moves like a queen, but must hop over a piece (friend or foe) and land on the square immediately beyond. Captures the piece it lands on, not the one it hops over.",
@@ -28,9 +34,18 @@ function distLabel(n: number): string {
 function describePattern(pattern: MovementPattern): string {
   const flags: string[] = [];
   if (pattern.moveOnly) flags.push("cannot capture");
+  if (pattern.passesUnits) flags.push("passes through pieces");
   if (pattern.captureOnly) flags.push("capture only");
   if (pattern.rangedCapture) flags.push("stays put");
   if (pattern.firstMoveOnly) flags.push("first move");
+  if (pattern.converts) flags.push("converts");
+  if (pattern.pushDistance) {
+    flags.push(
+      pattern.pushDistance < 0 || pattern.pushDistance >= 99
+        ? "pushes as far as it can"
+        : `pushes ${pattern.pushDistance} square${pattern.pushDistance === 1 ? "" : "s"}`
+    );
+  }
   const extra = flags.length ? ` (${flags.join(", ")})` : "";
   if (pattern.hopBeyond > 0) {
     const land = pattern.hopBeyond === 1 ? "the square immediately beyond" : `${pattern.hopBeyond} squares beyond`;

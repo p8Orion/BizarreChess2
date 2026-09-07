@@ -38,6 +38,9 @@ export const LANE11_DECOR: BoardDecorSpec = {
     // 180° of c5 is h7 on this 10-file board (not g7).
     { tiles: ["c5"], chance: "itemAmount" },
     { tiles: ["c7"], chance: "itemAmount" },
+    { tiles: ["e4"], chance: "itemAmount" },
+    { tiles: ["f4"], chance: "itemAmount" },
+    { tiles: ["d6"], chance: "itemAmount" },
   ],
   obstacles: {
     ranks: [3, 9],

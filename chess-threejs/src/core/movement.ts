@@ -7,6 +7,7 @@ import {
   MovementPattern,
   MovementType,
   MoveTargets,
+  NodeType,
   ORTHO_AXES,
   blocksFlight,
   emptyTargets,
@@ -76,6 +77,10 @@ function pushEmpty(result: MoveTargets, nodeId: number, pattern: MovementPattern
   else result.both.push(nodeId);
 }
 
+function continuesPastOccupied(pattern: MovementPattern): boolean {
+  return pattern.canJump || pattern.passesUnits;
+}
+
 function applyLanding(
   result: MoveTargets,
   nodeId: number,
@@ -84,7 +89,9 @@ function applyLanding(
   isEnemy: (id: number) => boolean
 ): void {
   if (isOccupied(nodeId)) {
-    if (isEnemy(nodeId) && !pattern.moveOnly) pushCapture(result, nodeId, pattern);
+    if (pattern.canShare) result.moveOnly.push(nodeId);
+    else if (isEnemy(nodeId) && !pattern.moveOnly) pushCapture(result, nodeId, pattern);
+    else if (pattern.canEnterOccupied && !isEnemy(nodeId)) result.moveOnly.push(nodeId);
     return;
   }
   if (pattern.captureOnly) return;
@@ -215,10 +222,8 @@ function addDiagonal(
         break;
       }
       if (isOccupied(current)) {
-        if (i >= pattern.minDistance && isEnemy(current) && !pattern.moveOnly) {
-          pushCapture(result, current, pattern);
-        }
-        if (!pattern.canJump) break;
+        if (i >= pattern.minDistance) applyLanding(result, current, pattern, isOccupied, isEnemy);
+        if (!continuesPastOccupied(pattern)) break;
       } else if (i >= pattern.minDistance) {
         pushEmpty(result, current, pattern);
       }
@@ -263,10 +268,8 @@ function addAxisRays(
           break;
         }
         if (isOccupied(current)) {
-          if (i >= pattern.minDistance && isEnemy(current) && !pattern.moveOnly) {
-            pushCapture(result, current, pattern);
-          }
-          if (!pattern.canJump) break;
+          if (i >= pattern.minDistance) applyLanding(result, current, pattern, isOccupied, isEnemy);
+          if (!continuesPastOccupied(pattern)) break;
         } else if (i >= pattern.minDistance) {
           pushEmpty(result, current, pattern);
         }
@@ -306,16 +309,58 @@ function addLeaper(
   for (const nodeId of dest) {
     if (nodeId === fromNode || !board.passable(nodeId)) continue;
     if (isOccupied(nodeId)) {
-      if (isEnemy(nodeId) && !pattern.moveOnly) {
-        if (pattern.captureOnly) result.captureOnly.push(nodeId);
-        else result.both.push(nodeId);
-      }
+      applyLanding(result, nodeId, pattern, isOccupied, isEnemy);
       continue;
     }
     if (pattern.captureOnly) result.captureOnly.push(nodeId);
     else if (pattern.moveOnly) result.moveOnly.push(nodeId);
     else result.both.push(nodeId);
   }
+}
+
+/** -1 or 99+ = until blocked. */
+export function pushStepCap(distance: number): number {
+  if (distance < 0 || distance >= 99) return 100;
+  return distance;
+}
+
+export type PushResolution = {
+  vacated: boolean;
+  dest: number;
+  falls: boolean;
+};
+
+/** Shove the occupant of `target` away from `from` along that axis. */
+export function resolvePush(
+  board: Board,
+  from: number,
+  target: number,
+  pushDistance: number,
+  isOccupied: (id: number) => boolean
+): PushResolution {
+  const axis = board.axisBetween(from, target);
+  if (!axis || pushStepCap(pushDistance) <= 0) return { vacated: false, dest: target, falls: false };
+  const cap = pushStepCap(pushDistance);
+  let prev = from;
+  let current = target;
+  let dest = target;
+  for (let i = 1; i <= cap; i++) {
+    const next = board.neighborsOnAxis(current, axis).find((id) => id !== prev);
+    if (next == null) break;
+    const node = board.getNode(next);
+    if (!node || node.currentType === NodeType.Destroyed) break;
+    if (node.currentType === NodeType.Impassable) break;
+    if (node.currentType === NodeType.Abyss) return { vacated: true, dest: next, falls: true };
+    if (!board.passable(next) || isOccupied(next)) break;
+    prev = current;
+    current = next;
+    dest = current;
+  }
+  return { vacated: dest !== target, dest, falls: false };
+}
+
+export function pushDistanceOf(unit: { patterns: MovementPattern[] }): number {
+  return unit.patterns.find((pattern) => pattern.pushDistance)?.pushDistance ?? 0;
 }
 
 function addAdjacent(
@@ -329,9 +374,21 @@ function addAdjacent(
   for (const nodeId of board.neighbors(fromNode)) {
     if (!board.passable(nodeId)) continue;
     if (isOccupied(nodeId)) {
+      if (pattern.converts && isEnemy(nodeId)) {
+        result.convert.push(nodeId);
+        continue;
+      }
+      if (pattern.pushDistance) {
+        if (resolvePush(board, fromNode, nodeId, pattern.pushDistance, isOccupied).vacated) {
+          result.push.push(nodeId);
+        }
+        continue;
+      }
       if (isEnemy(nodeId) && !pattern.moveOnly) {
         if (pattern.captureOnly) result.captureOnly.push(nodeId);
         else result.both.push(nodeId);
+      } else if (pattern.canShare || (pattern.canEnterOccupied && !isEnemy(nodeId))) {
+        result.moveOnly.push(nodeId);
       }
       continue;
     }
@@ -369,6 +426,18 @@ export function mergeTargets(into: MoveTargets, other: MoveTargets, seen: Set<nu
       into.rangedCapture.push(n);
     } else if (into.moveOnly.includes(n) && !into.rangedCapture.includes(n)) {
       into.rangedCapture.push(n);
+    }
+  }
+  for (const n of other.push) {
+    if (!seen.has(n)) {
+      seen.add(n);
+      into.push.push(n);
+    }
+  }
+  for (const n of other.convert) {
+    if (!seen.has(n)) {
+      seen.add(n);
+      into.convert.push(n);
     }
   }
 }
