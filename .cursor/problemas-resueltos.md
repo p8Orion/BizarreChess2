@@ -5,6 +5,16 @@ Registro vivo de incidentes y soluciones de **este proyecto**.
 
 ---
 
+## 2026-09-06 — Republicar Three.js en el VPS
+
+**Síntoma:** Hay que subir el port a `/chess` sin tocar el resto del server.
+**Contexto:** `149.50.156.136`, nginx ya tiene `/chess/` y `/chess/ws`.
+**Causa:** —
+**Solución:** `npm run build` en `chess-threejs`. Subir `dist/` a `/var/www/chess`. Subir `server/`, `src/core/`, `src/net/protocol.ts` y `package*.json` a `/opt/chess-threejs`. `npm ci` y `systemctl restart chess-ws`. No retocar nginx.
+**Prevención:** No guardar la clave en el repo. No tocar `/`, `/portfolio/` ni `/plantas`.
+
+---
+
 ## 2026-09-06 — Captura de bomber explotaba antes de aterrizar
 
 **Síntoma:** Quien capturaba al que llevaba bomba moría sin terminar de entrar a la casilla.
