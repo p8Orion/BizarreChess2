@@ -111,8 +111,12 @@ export interface ItemState {
   color: string;
   shape: "sphere" | "cube" | "capsule" | "cylinder";
   model?: string;
-  /** Spent for the rest of this match. Cleared when a new game starts. */
-  usedThisMatch?: boolean;
+  /** Power rank of this item kind (placement, loot, …). Not a variant of the same item. */
+  tier: number;
+  /** Remaining activations this match. Omitted = unlimited. */
+  uses?: number;
+  /** Activations at the start of a match. Omitted = unlimited. */
+  maxUses?: number;
 }
 
 export interface UnitState {

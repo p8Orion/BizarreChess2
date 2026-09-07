@@ -3,31 +3,133 @@ import { ItemState, MovementPattern, UnitState } from "./types";
 
 let nextItemId = 0;
 
-export function createForceFieldGenerator(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "ForceFieldGenerator",
+type ItemShape = ItemState["shape"];
+
+type ItemSpec = {
+  displayName: string;
+  description: string;
+  dropOnDeath: boolean;
+  color: string;
+  shape: ItemShape;
+  model?: string;
+  /** Power rank of this kind. Higher = stronger; used later for map placement. */
+  tier: number;
+  /** Activations per match. Omit = unlimited (passives, or consume-on-break). */
+  maxUses?: number;
+};
+
+/** One entry per item kind — not per power variant. */
+export const ITEMS = {
+  Crossbow: {
+    displayName: "Crossbow",
+    description: "Grants a diagonal ranged shot up to 3 squares. Drops on death.",
+    dropOnDeath: true,
+    color: "#c4783a",
+    shape: "cube",
+    model: "items/crossbow",
+    tier: 1,
+  },
+  Bomb: {
+    displayName: "Bomb",
+    description: "Ignite, break, or die to explode this tile and the orthogonal neighbors, and smash mountains there.",
+    dropOnDeath: true,
+    color: "#4a2f1c",
+    shape: "cylinder",
+    model: "items/powder_barrel",
+    tier: 1,
+  },
+  ForceFieldGenerator: {
     displayName: "Force Field Generator",
     description: "Grants a protective forcefield that blocks one capture. Drops on death.",
-    nodeId,
     dropOnDeath: true,
     color: "#33ccff",
     shape: "sphere",
+    tier: 2,
+  },
+  EscapeScroll: {
+    displayName: "Escape Scroll",
+    description: "1 use: return this piece to the square where it started the match. The scroll stays with the piece.",
+    dropOnDeath: true,
+    color: "#d4b87a",
+    shape: "capsule",
+    model: "items/pergamino",
+    tier: 2,
+    maxUses: 1,
+  },
+  TransmuteScroll: {
+    displayName: "Transmutation Scroll",
+    description: "2 uses: turn an empty square this piece can attack into stone. The scroll stays with the piece.",
+    dropOnDeath: true,
+    color: "#6a6a6a",
+    shape: "capsule",
+    model: "items/pergamino",
+    tier: 2,
+    maxUses: 2,
+  },
+} satisfies Record<string, ItemSpec>;
+
+export type ItemKind = keyof typeof ITEMS;
+
+export function itemTier(kind: string): number {
+  return ITEMS[kind as ItemKind]?.tier ?? 1;
+}
+
+export function itemMaxUses(kind: string): number | undefined {
+  return ITEMS[kind as ItemKind]?.maxUses;
+}
+
+export function itemIsSpent(item: ItemState): boolean {
+  return item.maxUses != null && (item.uses ?? 0) <= 0;
+}
+
+export function itemUsesLabel(item: ItemState): string | null {
+  if (item.maxUses == null) return null;
+  return `${item.uses ?? 0}/${item.maxUses}`;
+}
+
+/** Spend one activation. Unlimited items always succeed. */
+export function spendItemUse(item: ItemState): boolean {
+  if (item.maxUses == null) return true;
+  if ((item.uses ?? 0) <= 0) return false;
+  item.uses = (item.uses ?? 0) - 1;
+  return true;
+}
+
+export function refillItemUses(item: ItemState): void {
+  const max = item.maxUses ?? itemMaxUses(item.kind);
+  if (max == null) {
+    delete item.uses;
+    delete item.maxUses;
+    return;
+  }
+  item.maxUses = max;
+  item.uses = max;
+}
+
+function spawnItem(kind: ItemKind, nodeId: number): ItemState {
+  const spec = ITEMS[kind];
+  const maxUses = spec.maxUses;
+  return {
+    id: `item_${nextItemId++}`,
+    kind,
+    displayName: spec.displayName,
+    description: spec.description,
+    nodeId,
+    dropOnDeath: spec.dropOnDeath,
+    color: spec.color,
+    shape: spec.shape,
+    model: spec.model,
+    tier: spec.tier,
+    ...(maxUses != null ? { maxUses, uses: maxUses } : {}),
   };
 }
 
+export function createForceFieldGenerator(nodeId: number): ItemState {
+  return spawnItem("ForceFieldGenerator", nodeId);
+}
+
 export function createBomb(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "Bomb",
-    displayName: "Bomb",
-    description: "Ignite, break, or die to explode this tile and the orthogonal neighbors, and smash mountains there.",
-    nodeId,
-    dropOnDeath: true,
-    color: "#1a1a1a",
-    shape: "sphere",
-    model: "items/powder_barrel",
-  };
+  return spawnItem("Bomb", nodeId);
 }
 
 export function catalogStartingItem(definitionId: string): { displayName: string } | null {
@@ -40,60 +142,16 @@ export function startingHeldItem(definitionId: string): ItemState | null {
   return null;
 }
 
-export function createPowderBarrel(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "PowderBarrel",
-    displayName: "Powder Barrel",
-    description: "Ignite, break, or die to explode this tile and the orthogonal neighbors, and smash mountains there.",
-    nodeId,
-    dropOnDeath: true,
-    color: "#4a2f1c",
-    shape: "cylinder",
-    model: "items/powder_barrel",
-  };
-}
-
 export function createTransmuteScroll(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "TransmuteScroll",
-    displayName: "Transmutation Scroll",
-    description: "Once per match: turn an empty square this piece can attack into stone. The scroll stays with the piece.",
-    nodeId,
-    dropOnDeath: true,
-    color: "#6a6a6a",
-    shape: "capsule",
-    model: "items/pergamino",
-  };
+  return spawnItem("TransmuteScroll", nodeId);
 }
 
 export function createEscapeScroll(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "EscapeScroll",
-    displayName: "Escape Scroll",
-    description: "Once per match: return this piece to the square where it started the match. The scroll stays with the piece.",
-    nodeId,
-    dropOnDeath: true,
-    color: "#d4b87a",
-    shape: "capsule",
-    model: "items/pergamino",
-  };
+  return spawnItem("EscapeScroll", nodeId);
 }
 
 export function createCrossbow(nodeId: number): ItemState {
-  return {
-    id: `item_${nextItemId++}`,
-    kind: "Crossbow",
-    displayName: "Crossbow",
-    description: "Grants a diagonal ranged shot up to 3 squares. Drops on death.",
-    nodeId,
-    dropOnDeath: true,
-    color: "#c4783a",
-    shape: "cube",
-    model: "items/crossbow",
-  };
+  return spawnItem("Crossbow", nodeId);
 }
 
 export function pickupActionLabel(item: ItemState): string {
@@ -127,7 +185,7 @@ export function defaultBoardItems(
   height = 8,
   preferred?: number[]
 ): ItemState[] {
-  const makers = [createCrossbow, createForceFieldGenerator, createPowderBarrel, createEscapeScroll, createTransmuteScroll];
+  const makers = [createCrossbow, createForceFieldGenerator, createBomb, createEscapeScroll, createTransmuteScroll];
   const useWings = !!preferred?.length;
   const pool = useWings ? shuffleInPlace([...preferred!]) : itemHomeTiles(width, height);
   const chosen: number[] = [];
@@ -149,7 +207,7 @@ export function defaultBoardItems(
 
 /** Place one shuffled catalog item on each tile (used by board decor recipes). */
 export function placeBoardItems(tiles: number[], passable?: (nodeId: number) => boolean): ItemState[] {
-  const makers = [createCrossbow, createForceFieldGenerator, createPowderBarrel, createEscapeScroll, createTransmuteScroll];
+  const makers = [createCrossbow, createForceFieldGenerator, createBomb, createEscapeScroll, createTransmuteScroll];
   const spots = tiles.filter((id) => !passable || passable(id));
   if (!spots.length) return [];
   const assign = shuffleInPlace([...makers]);
@@ -169,10 +227,10 @@ export function applyItemPick(unit: UnitState, item: ItemState): void {
     }
     return;
   }
-  if (item.kind === "PowderBarrel" || item.kind === "Bomb") {
+  if (item.kind === "Bomb") {
     unit.actions ??= [];
-    if (!unit.actions.some((a) => a.id === "PowderBarrel")) {
-      unit.actions = [...unit.actions, { id: "PowderBarrel", label: item.kind === "Bomb" ? "Ignite bomb" : "Ignite powder" }];
+    if (!unit.actions.some((a) => a.id === "Bomb")) {
+      unit.actions = [...unit.actions, { id: "Bomb", label: "Ignite bomb" }];
     }
   }
   if (item.kind === "EscapeScroll") {
@@ -198,7 +256,6 @@ export interface ItemBreakContext {
 export type ItemOnBreak = (ctx: ItemBreakContext) => void;
 
 const ON_BREAK: Record<string, ItemOnBreak> = {
-  PowderBarrel: ({ nodeId, explode }) => explode(nodeId),
   Bomb: ({ nodeId, explode }) => explode(nodeId),
 };
 
@@ -224,8 +281,8 @@ export function applyItemDrop(unit: UnitState, item: ItemState): void {
     unit.patterns = unit.patterns.filter((p) => p.grantedBy !== "Crossbow");
     return;
   }
-  if (item.kind === "PowderBarrel" || item.kind === "Bomb") {
-    unit.actions = (unit.actions ?? []).filter((a) => a.id !== "PowderBarrel");
+  if (item.kind === "Bomb") {
+    unit.actions = (unit.actions ?? []).filter((a) => a.id !== "Bomb");
   }
   if (item.kind === "EscapeScroll") {
     unit.actions = (unit.actions ?? []).filter((a) => a.id !== "EscapeScroll");
@@ -239,25 +296,22 @@ export function cloneItem(item: ItemState): ItemState {
   return { ...item };
 }
 
-const ITEM_MODELS: Record<string, string> = {
-  Crossbow: "items/crossbow",
-  PowderBarrel: "items/powder_barrel",
-  Bomb: "items/powder_barrel",
-  EscapeScroll: "items/pergamino",
-  TransmuteScroll: "items/pergamino",
-};
-
-export function rehydrateItem(item: Omit<ItemState, "id" | "nodeId"> & { id?: string; nodeId?: number }): ItemState {
+export function rehydrateItem(item: Omit<ItemState, "id" | "nodeId" | "tier"> & { id?: string; nodeId?: number; tier?: number }): ItemState {
+  const kind = item.kind === "PowderBarrel" ? "Bomb" : item.kind;
+  const spec = ITEMS[kind as ItemKind];
+  const maxUses = spec?.maxUses ?? item.maxUses;
   return {
     id: item.id ?? `item_${nextItemId++}`,
-    kind: item.kind,
-    displayName: item.displayName,
-    description: item.description,
+    kind,
+    displayName: spec?.displayName || item.displayName || kind,
+    description: spec?.description || item.description || "",
     nodeId: item.nodeId ?? -1,
     dropOnDeath: item.dropOnDeath,
-    color: item.color,
-    shape: item.shape,
-    model: item.model ?? ITEM_MODELS[item.kind],
+    color: item.color || spec?.color || "#c9a15b",
+    shape: item.shape ?? spec?.shape ?? "cube",
+    model: item.model ?? spec?.model,
+    tier: spec?.tier ?? item.tier ?? 1,
+    ...(maxUses != null ? { maxUses, uses: item.uses ?? maxUses } : {}),
   };
 }
 

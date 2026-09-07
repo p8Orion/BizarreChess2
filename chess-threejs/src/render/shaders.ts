@@ -162,3 +162,43 @@ export function createWoodFallback(light: boolean): THREE.CanvasTexture {
     }
   });
 }
+
+/** Tileable strata for the tall pit walls — brownish greys, readable in shadow. */
+export function createSideGrainMap(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#b7ab9c";
+  ctx.fillRect(0, 0, size, size);
+  const band = (y: number, wobble: number, width: number, stroke: string) => {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(size * 0.28, y + wobble, size * 0.72, y - wobble, size, y + wobble * 0.25);
+    ctx.stroke();
+  };
+  for (let i = 0; i < 28; i++) {
+    const y = ((i + 0.5) / 28) * size;
+    const wobble = 5 + (i % 7) * 2.2;
+    const dark = i % 4 === 0;
+    band(y, wobble, dark ? 3.2 : 1.4, dark ? "rgba(86, 76, 66, 0.55)" : "rgba(92, 82, 72, 0.28)");
+    band(y - size, wobble, dark ? 3.2 : 1.4, dark ? "rgba(86, 76, 66, 0.55)" : "rgba(92, 82, 72, 0.28)");
+    band(y + size, wobble, dark ? 3.2 : 1.4, dark ? "rgba(86, 76, 66, 0.55)" : "rgba(92, 82, 72, 0.28)");
+  }
+  for (let i = 0; i < 18; i++) {
+    const y = ((i + 0.35) / 18) * size;
+    const wobble = -8 - (i % 5) * 1.6;
+    band(y, wobble, 1.1, "rgba(214, 204, 190, 0.42)");
+    band(y - size, wobble, 1.1, "rgba(214, 204, 190, 0.42)");
+    band(y + size, wobble, 1.1, "rgba(214, 204, 190, 0.42)");
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}

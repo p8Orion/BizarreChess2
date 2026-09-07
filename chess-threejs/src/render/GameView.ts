@@ -25,6 +25,7 @@ import {
   createMarkerMaterial,
   createRingMap,
   createWoodFallback,
+  createSideGrainMap,
 } from "./shaders";
 
 const TILE = 1;
@@ -42,7 +43,7 @@ const MOVE_SPEED = 3.4;
 const LIGHT_WOOD = new THREE.Color(0xf2d9b3);
 const MID_WOOD = new THREE.Color(0xb07840);
 const DARK_WOOD = new THREE.Color(0x2a1810);
-const SIDE_WOOD = new THREE.Color(0x6e4528);
+const SIDE_WOOD = new THREE.Color(0xd8cfc4);
 const HEX_WOOD = [new THREE.Color(0xf0d6b0), new THREE.Color(0xb07840), new THREE.Color(0x5c3a22)];
 const WOOD_SHADES = [LIGHT_WOOD, MID_WOOD, DARK_WOOD];
 
@@ -163,6 +164,7 @@ export class GameView {
   private readonly crossMap = createCrosshairMap();
   private woodLight: THREE.Texture = createWoodFallback(true);
   private woodDark: THREE.Texture = createWoodFallback(false);
+  private woodSide: THREE.Texture = createSideGrainMap();
   private boardRoot = new THREE.Group();
   private ground: THREE.Mesh | null = null;
   private groundMap: THREE.CanvasTexture | null = null;
@@ -182,6 +184,7 @@ export class GameView {
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.woodLight.wrapS = this.woodLight.wrapT = THREE.RepeatWrapping;
     this.woodDark.wrapS = this.woodDark.wrapT = THREE.RepeatWrapping;
+    this.woodSide.wrapS = this.woodSide.wrapT = THREE.RepeatWrapping;
     this.scene.background = new THREE.Color(0x5c4a38);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 48);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -557,7 +560,7 @@ export class GameView {
     });
     for (const mat of mats) {
       const map = (mat as THREE.MeshStandardMaterial).map;
-      if (map && map !== this.woodLight && map !== this.woodDark) map.dispose();
+      if (map && map !== this.woodLight && map !== this.woodDark && map !== this.woodSide) map.dispose();
       mat.dispose();
     }
     for (const geo of geos) geo.dispose();
@@ -571,9 +574,9 @@ export class GameView {
     const layout = stateLayout(state);
     const sideMat = new THREE.MeshStandardMaterial({
       color: SIDE_WOOD,
-      map: this.woodDark,
-      roughness: 0.92,
-      metalness: 0.03,
+      map: this.woodSide,
+      roughness: 0.74,
+      metalness: 0,
     });
     const occupied: WorldRect[] = [];
     const abyssRects: WorldRect[] = [];
@@ -616,7 +619,7 @@ export class GameView {
     }
     const w = state.width;
     if (abyssRects.length) {
-      const voidMat = new THREE.MeshBasicMaterial({ color: 0x050403 });
+      const voidMat = new THREE.MeshBasicMaterial({ color: 0x4a433b });
       for (const rect of abyssRects) {
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(rect.x1 - rect.x0, rect.z1 - rect.z0), voidMat);
         pad.rotation.x = -Math.PI / 2;

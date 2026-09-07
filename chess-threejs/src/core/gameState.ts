@@ -1,7 +1,7 @@
 import { Board, createBoardByKind, definitionFromPublic } from "./board";
 import { applyBoardDecor, normalizeDecorAmounts } from "./boardDecor";
 import { normalizeStyles, type PlayerStyle } from "./colors";
-import { applyItemBreak, applyItemDrop, applyItemPick, cloneItem, defaultBoardItems, hasOnBreak, placeBoardItems, startingHeldItem } from "./items";
+import { applyItemBreak, applyItemDrop, applyItemPick, cloneItem, defaultBoardItems, hasOnBreak, itemIsSpent, placeBoardItems, refillItemUses, spendItemUse, startingHeldItem } from "./items";
 import { ArmyDef, BIZARRE_ARMY, PIECES, Slot } from "./pieces";
 import { BoardKind, GameEndReason, GamePhase, ItemState, NodeType, PublicState, UnitState } from "./types";
 import { isCheckmate, isStalemate, transmutationTargets, validateMove } from "./validator";
@@ -112,14 +112,14 @@ export function previewNodesForAction(
   unit?: UnitState,
   all: UnitState[] = []
 ): number[] {
-  if (actionId === "PowderBarrel") return explosionNodes(board, originNode);
+  if (actionId === "Bomb") return explosionNodes(board, originNode);
   if (actionId === "EscapeScroll") {
-    if (unit?.heldItem?.kind === "EscapeScroll" && unit.heldItem.usedThisMatch) return [];
+    if (unit?.heldItem?.kind === "EscapeScroll" && itemIsSpent(unit.heldItem)) return [];
     if (unit?.homeNodeId != null && unit.homeNodeId !== originNode) return [unit.homeNodeId];
     return [];
   }
   if (actionId === "TransmuteScroll" && unit) {
-    if (unit.heldItem?.kind === "TransmuteScroll" && unit.heldItem.usedThisMatch) return [];
+    if (unit.heldItem?.kind === "TransmuteScroll" && itemIsSpent(unit.heldItem)) return [];
     return transmutationTargets(board, unit, all);
   }
   return [];
@@ -130,7 +130,7 @@ export function actionNotice(action: ActionExecution): string | undefined {
   if (action.gameEnded) return action.endReason;
   if (action.actionId === "EscapeScroll") return "Returned to the starting square";
   if (action.actionId === "TransmuteScroll") return "The square turned to stone";
-  if (action.actionId === "PowderBarrel") return "Explosion";
+  if (action.actionId === "Bomb") return "Explosion";
   return undefined;
 }
 
@@ -263,7 +263,7 @@ export class Game {
         rosterX: slot.x,
       };
       if (unit.heldItem) {
-        unit.heldItem.usedThisMatch = false;
+        refillItemUses(unit.heldItem);
         applyItemPick(unit, unit.heldItem);
       }
       this.units.push(unit);
@@ -445,9 +445,9 @@ export class Game {
     if (!unit.actions.some((a) => a.id === actionId)) return this.failAction("Unknown action");
     if (actionId === "EscapeScroll") return this.useEscapeScroll(unit);
     if (actionId === "TransmuteScroll") return this.useTransmuteScroll(unit, targetNode);
-    if (actionId !== "PowderBarrel") return this.failAction("Unknown action");
+    if (actionId !== "Bomb") return this.failAction("Unknown action");
     const item = unit.heldItem;
-    if (item?.kind !== "PowderBarrel" && item?.kind !== "Bomb") return this.failAction("No powder to ignite");
+    if (item?.kind !== "Bomb") return this.failAction("No bomb to ignite");
 
     applyItemDrop(unit, item);
     unit.heldItem = null;
@@ -480,7 +480,7 @@ export class Game {
   private useTransmuteScroll(unit: UnitState, targetNode?: number): ActionExecution {
     const item = unit.heldItem;
     if (item?.kind !== "TransmuteScroll") return this.failAction("No transmutation scroll");
-    if (item.usedThisMatch) return this.failAction("Already used this match");
+    if (itemIsSpent(item)) return this.failAction("No uses left");
     if (targetNode == null) return this.failAction("Choose an empty square this piece can attack");
     if (!transmutationTargets(this.board, unit, this.units).includes(targetNode)) {
       return this.failAction("That square is not an empty attack target");
@@ -489,7 +489,7 @@ export class Game {
       return this.failAction("Cannot transmute that square");
     }
 
-    item.usedThisMatch = true;
+    if (!spendItemUse(item)) return this.failAction("No uses left");
     unit.hasMovedThisTurn = true;
     unit.hasEverMoved = true;
 
@@ -519,7 +519,7 @@ export class Game {
   private useEscapeScroll(unit: UnitState): ActionExecution {
     const item = unit.heldItem;
     if (item?.kind !== "EscapeScroll") return this.failAction("No escape scroll");
-    if (item.usedThisMatch) return this.failAction("Already used this match");
+    if (itemIsSpent(item)) return this.failAction("No uses left");
     const home = unit.homeNodeId;
     if (home == null) return this.failAction("No starting square recorded");
     if (home === unit.currentNodeId) return this.failAction("Already on the starting square");
@@ -528,7 +528,7 @@ export class Game {
     if (blocker) return this.failAction("The starting square is occupied");
 
     const from = unit.currentNodeId;
-    item.usedThisMatch = true;
+    if (!spendItemUse(item)) return this.failAction("No uses left");
     unit.currentNodeId = home;
     unit.hasMovedThisTurn = true;
     unit.hasEverMoved = true;

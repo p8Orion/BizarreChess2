@@ -11,7 +11,7 @@ import {
 import { Draft, DRAFT_PICK_MODES, clampBanCount, normalizeDraftConfig, type DraftPickModeId, type DraftUniq } from "./core/draft";
 import { defaultBoardForFormat, type ArmyFormat, type MatchMode } from "./core/format";
 import { Game, actionNotice, previewNodesForAction, type ActionExecution, type MoveExecution } from "./core/gameState";
-import { pickupActionLabel } from "./core/items";
+import { itemIsSpent, itemUsesLabel, pickupActionLabel } from "./core/items";
 import { boardsForFormat, boardSupportsFormat } from "./core/board";
 import { clampDecorAmount } from "./core/boardDecor";
 import { allTargets, GameEndReason, GamePhase, PublicState, UnitState } from "./core/types";
@@ -462,14 +462,15 @@ function inspectActions(unit: UnitState): { id: string; label: string; run?: () 
   }
   for (const action of unit.actions ?? []) {
     const can = canAct() && canSelect(unit);
-    const spent = action.id === unit.heldItem?.kind && !!unit.heldItem?.usedThisMatch;
+    const spent = action.id === unit.heldItem?.kind && !!unit.heldItem && itemIsSpent(unit.heldItem);
+    const uses = action.id === unit.heldItem?.kind && unit.heldItem ? itemUsesLabel(unit.heldItem) : null;
     const run =
       action.id === "TransmuteScroll"
         ? () => beginTargetedAction(unit.unitId, action.id)
         : () => tryAction(unit.unitId, action.id);
     actions.push({
       id: action.id,
-      label: spent ? `${action.label} (used)` : action.label,
+      label: uses ? `${action.label} (${uses})` : action.label,
       run: can && !spent ? run : undefined,
     });
   }
@@ -489,7 +490,7 @@ function actionPortraitItem(unit: UnitState, actionId: string) {
   if (actionId === "pickup") {
     return publicState ? itemOnNode(publicState, unit.currentNodeId) : undefined;
   }
-  if (actionId === "drop" || actionId === "PowderBarrel" || actionId === "EscapeScroll" || actionId === "TransmuteScroll") {
+  if (actionId === "drop" || actionId === "Bomb" || actionId === "EscapeScroll" || actionId === "TransmuteScroll") {
     return unit.heldItem ?? undefined;
   }
   return undefined;
@@ -502,7 +503,7 @@ function renderActions(el: HTMLElement, unit: UnitState | undefined): void {
     const btn = document.createElement("button");
     btn.type = "button";
     if (action.id === "pickup") btn.className = "action-pickup";
-    if (action.id === "PowderBarrel") btn.className = "action-ignite";
+    if (action.id === "Bomb") btn.className = "action-ignite";
     if (action.id === "EscapeScroll") btn.className = "action-escape";
     if (action.id === "TransmuteScroll") {
       btn.className = "action-transmute";
@@ -550,8 +551,8 @@ function beginTargetedAction(unitId: number, actionId: string): void {
   const unit = publicState.units.find((item) => item.unitId === unitId);
   if (!unit) return;
   if (actionId === "TransmuteScroll") {
-    if (unit.heldItem?.kind === "TransmuteScroll" && unit.heldItem.usedThisMatch) {
-      refreshHud("Already used this match");
+    if (unit.heldItem?.kind === "TransmuteScroll" && itemIsSpent(unit.heldItem)) {
+      refreshHud("No uses left");
       return;
     }
     const spots = transmutationTargets(boardFromState(publicState), unit, publicState.units);

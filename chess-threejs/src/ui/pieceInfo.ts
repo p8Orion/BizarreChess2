@@ -1,3 +1,4 @@
+import { itemUsesLabel } from "../core/items";
 import { PIECES } from "../core/pieces";
 import { MovementPattern, MovementType, UnitState } from "../core/types";
 
@@ -79,8 +80,8 @@ export function pieceMoveText(unit: UnitState): string {
     extras.push(describePattern(granted));
   }
   if (unit.heldItem) {
-    const spent = unit.heldItem.usedThisMatch ? " (already used this match)" : "";
-    extras.push(`Holding ${unit.heldItem.displayName}${spent}.`);
+    const uses = itemUsesLabel(unit.heldItem);
+    extras.push(`Holding ${unit.heldItem.displayName}${uses ? ` (${uses})` : ""}.`);
   }
   return extras.length ? `${base} ${extras.join(" ")}` : base;
 }
