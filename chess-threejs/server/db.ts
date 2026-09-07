@@ -165,7 +165,7 @@ export class MatchStore {
       setup: parseJson<MatchSetup>(row.setup_json, {
         seed: asNumber(row.seed),
         board: asString(row.board) as BoardKind,
-        autoPickupItems: false,
+        autoPickupItems: true,
         itemAmount: 5,
         obstacleAmount: 5,
         symmetricObstacles: true,

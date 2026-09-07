@@ -4,6 +4,8 @@ import type { ItemState, UnitState } from "../core/types";
 import { PORTRAIT_LIVE_DIST, addPortraitLights, portraitCameraDir } from "./portraitFrame";
 import { createCheckerGround } from "./portraitGround";
 
+const IDLE_FRAME_MS = 1000 / 30;
+
 export class PortraitView {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.08, 20);
@@ -12,6 +14,8 @@ export class PortraitView {
   private visual: THREE.Object3D | null = null;
   private token = 0;
   private raf = 0;
+  private lastFrame = 0;
+  private forceFrame = true;
   private visible = false;
   private currentKey = "";
   private look = new THREE.Vector3();
@@ -57,6 +61,7 @@ export class PortraitView {
       for (const mat of mats) mat.dispose();
     });
     this.visual = null;
+    this.forceFrame = true;
     this.renderer.clear();
   }
 
@@ -98,6 +103,7 @@ export class PortraitView {
       this.visual = visual;
       this.scene.add(visual);
       this.frame(visual);
+      this.forceFrame = true;
     });
   }
 
@@ -215,11 +221,16 @@ export class PortraitView {
     this.camera.aspect = 1;
     this.camera.updateProjectionMatrix();
     if (this.visual) this.frame(this.visual);
+    this.forceFrame = true;
   };
 
   private readonly loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
     if (!this.visible || !this.visual) return;
+    const now = performance.now();
+    if (!this.forceFrame && now - this.lastFrame < IDLE_FRAME_MS) return;
+    this.forceFrame = false;
+    this.lastFrame = now;
     this.clock.getDelta();
     this.renderer.render(this.scene, this.camera);
   };

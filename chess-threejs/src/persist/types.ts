@@ -7,7 +7,7 @@ import type { BoardKind, ItemState } from "../core/types";
 import type { Locale } from "../i18n";
 
 export const USER_STORE_KEY = "bizarre-chess.user.v1";
-export const USER_STORE_VERSION = 6 as const;
+export const USER_STORE_VERSION = 7 as const;
 
 export interface UserSettings {
   locale: Locale;
@@ -26,7 +26,7 @@ export interface UserSettings {
 
 export const DEFAULT_SETTINGS: UserSettings = {
   locale: "es",
-  autoPickupItems: false,
+  autoPickupItems: true,
   matchMode: "normal",
   armyFormat: "mini",
   board: "lane11",

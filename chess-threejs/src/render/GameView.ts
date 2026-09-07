@@ -41,6 +41,7 @@ const ROCK_MAX_HEIGHT = 1.35;
 const MAX_FOOTPRINT = 0.78;
 const KING_HEIGHT = 1.9;
 const MOVE_SPEED = 3.4;
+const IDLE_FRAME_MS = 1000 / 30;
 const LIGHT_WOOD = new THREE.Color(0xf2d9b3);
 const MID_WOOD = new THREE.Color(0xb07840);
 const DARK_WOOD = new THREE.Color(0x2a1810);
@@ -202,6 +203,10 @@ export class GameView {
   private readonly patternMaps = new Map<string, THREE.CanvasTexture>();
   private pointerDown: { x: number; y: number } | null = null;
   private raf = 0;
+  private lastFrame = 0;
+  private liveUntil = 0;
+  private forceFrame = true;
+  private orbiting = false;
   private pawnScale: number | null = null;
   busy = false;
   onTileClick: ((nodeId: number) => void) | null = null;
@@ -224,6 +229,9 @@ export class GameView {
     this.controls.maxPolarAngle = Math.PI * 0.48;
     this.controls.minDistance = 6;
     this.controls.maxDistance = 22;
+    this.controls.addEventListener("start", this.onControlsStart);
+    this.controls.addEventListener("end", this.onControlsEnd);
+    this.controls.addEventListener("change", this.onControlsChange);
     this.scene.add(new THREE.AmbientLight(0xffe8c8, 0.48));
     this.keyLight = new THREE.DirectionalLight(0xfff1d6, 1.25);
     this.keyLight.castShadow = true;
@@ -252,6 +260,9 @@ export class GameView {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.controls.removeEventListener("start", this.onControlsStart);
+    this.controls.removeEventListener("end", this.onControlsEnd);
+    this.controls.removeEventListener("change", this.onControlsChange);
     window.removeEventListener("resize", this.resize);
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas.removeEventListener("pointerup", this.onPointerUp);
@@ -277,6 +288,7 @@ export class GameView {
         this.applyShadowLook(actor.group, unit);
       }
     }
+    this.poke();
   }
 
   setState(state: PublicState, localPlayerId = 0): void {
@@ -300,6 +312,7 @@ export class GameView {
     }
     this.syncPieces(state, true);
     this.syncItems(state);
+    this.poke();
   }
 
   async playOutcome(prev: PublicState, next: PublicState, move: MoveExecution): Promise<void> {
@@ -421,14 +434,17 @@ export class GameView {
       const pad = group.userData.pad as THREE.Mesh | undefined;
       if (pad) pad.visible = pickable;
     }
+    this.poke();
   }
 
   setHighlights(targets: MoveTargets | null, ownerId = 0): void {
     this.paintMarkers(this.markers, targets, this.selectionColors(ownerId), 0.012, 1, 1);
+    this.poke();
   }
 
   setHoverHighlights(targets: MoveTargets | null, ownerId = 0): void {
     this.paintMarkers(this.hoverMarkers, targets, this.hoverColors(ownerId), 0.02, 0.92, 0.48);
+    this.poke();
   }
 
   setAbilityHighlights(nodeIds: number[] | null, colorHex = "#ff6a3d"): void {
@@ -438,6 +454,7 @@ export class GameView {
     for (const id of nodeIds) {
       this.addMarker(this.abilityMarkers, id, this.ringMap, color, 0.96, 0.03, 0.9);
     }
+    this.poke();
   }
 
   private selectionColors(ownerId: number): { move: THREE.Color; capture: THREE.Color; ranged: THREE.Color } {
@@ -505,6 +522,7 @@ export class GameView {
       top.emissive.setHex(id === nodeId ? 0x3d2a12 : 0x000000);
       top.emissiveIntensity = id === nodeId ? 0.35 : 0;
     }
+    this.poke();
   }
 
   private addMarker(
@@ -829,6 +847,7 @@ export class GameView {
       this.scene.add(this.ground);
     }
     this.ground.position.set(baked.cx, -0.002, baked.cz);
+    this.poke();
     this.fitShadowRig(width, height, layout);
     if (!this.fogTint) {
       const rand = seed != null ? fogRandFromSeed(seed) : Math.random;
@@ -1860,12 +1879,35 @@ export class GameView {
     this.controls.update();
   }
 
+  private poke(liveMs = 0): void {
+    this.forceFrame = true;
+    if (liveMs > 0) this.liveUntil = Math.max(this.liveUntil, performance.now() + liveMs);
+  }
+
+  private isLive(): boolean {
+    return this.busy || this.orbiting || this.pointerDown != null || performance.now() < this.liveUntil;
+  }
+
+  private readonly onControlsStart = (): void => {
+    this.orbiting = true;
+  };
+
+  private readonly onControlsEnd = (): void => {
+    this.orbiting = false;
+    this.poke(400);
+  };
+
+  private readonly onControlsChange = (): void => {
+    this.poke(80);
+  };
+
   private readonly resize = (): void => {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
+    this.poke(200);
   };
 
   private setPointer(event: PointerEvent): void {
@@ -1937,15 +1979,18 @@ export class GameView {
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     this.pointerDown = { x: event.clientX, y: event.clientY };
+    this.poke(200);
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
     if (this.pointerDown) return;
+    this.poke(120);
     this.emitHover(event);
   };
 
   private readonly onPointerLeave = (): void => {
     if (this.pointerDown) return;
+    this.poke();
     this.onInspectHover?.(null);
   };
 
@@ -1994,6 +2039,10 @@ export class GameView {
 
   private readonly loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
+    const now = performance.now();
+    if (!this.forceFrame && !this.isLive() && now - this.lastFrame < IDLE_FRAME_MS) return;
+    this.forceFrame = false;
+    this.lastFrame = now;
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
     for (const actor of this.pieces.values()) {

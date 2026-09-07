@@ -610,11 +610,32 @@ button.ghost {
 }
 
 #btn-draft-leave,
-#btn-lobby-leave {
+#btn-lobby-leave,
+#btn-draft-invite,
+#btn-lobby-invite,
+#btn-hud-invite {
   width: auto;
   margin-top: 0;
   padding: 5px 10px;
   font-size: 0.8rem;
+}
+
+#btn-copy-invite.is-copied,
+#btn-draft-invite.is-copied,
+#btn-lobby-invite.is-copied,
+#btn-hud-invite.is-copied {
+  color: #14210c;
+  background: #b7e07a;
+  border-color: #8fce4a;
+}
+
+#btn-copy-invite.is-copy-fail,
+#btn-draft-invite.is-copy-fail,
+#btn-lobby-invite.is-copy-fail,
+#btn-hud-invite.is-copy-fail {
+  color: #2a120c;
+  background: #e0a07a;
+  border-color: #c46a3d;
 }
 
 #draft-room,
@@ -1464,4 +1485,54 @@ label.board select {
   #hud-notice {
     font-size: 0.72rem;
   }
+}
+
+#result-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding: 0 20px;
+  pointer-events: none;
+}
+
+#result-overlay[hidden] {
+  display: none;
+}
+
+.result-card {
+  width: min(420px, 100%);
+  padding: 20px 22px 16px;
+  text-align: center;
+  pointer-events: auto;
+  background: rgba(18, 16, 13, 0.88);
+  border: 1px solid rgba(244, 234, 215, 0.16);
+  border-radius: 16px;
+}
+
+#result-title {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+#result-sub {
+  margin-top: 8px;
+  color: #e6c27a;
+  font-size: 1rem;
+}
+
+#result-rematch-status {
+  min-height: 1.3em;
+  margin: 16px 0 8px;
+  color: #9b8d73;
+  font-size: 0.85rem;
+}
+
+#btn-rematch-ready.is-on {
+  background: #c9a15b;
+  color: #1b150c;
 }

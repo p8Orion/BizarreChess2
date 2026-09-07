@@ -205,7 +205,7 @@ export class Game {
     const generated = applyBoardDecor(createBoardByKind(boardKind, settings?.seed), scatter, settings?.seed);
     this.board = new Board(generated.def);
     this.playerColors = normalizeStyles(colors);
-    this.autoPickupItems = settings?.autoPickupItems === true;
+    this.autoPickupItems = settings?.autoPickupItems !== false;
     const spec = toArmySpec(army);
     const opponent = opponentArmy
       ? toArmySpec(opponentArmy)

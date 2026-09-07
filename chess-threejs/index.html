@@ -44,6 +44,7 @@
             </div>
           </div>
           <div id="net-info"></div>
+          <button id="btn-hud-invite" class="ghost" type="button" hidden data-i18n="menu.copyInvite">Copy invite</button>
           <button id="btn-resign" class="ghost" data-i18n="hud.resign">Resign</button>
         </div>
         <div id="hud-actions"></div>
@@ -174,6 +175,7 @@
         <div id="draft-title" data-i18n="draft.title">Draft</div>
         <div class="menu-head-actions">
           <div data-lang-switch></div>
+          <button id="btn-draft-invite" class="ghost" type="button" data-i18n="menu.copyInvite">Copy invite</button>
           <button id="btn-draft-leave" class="ghost" type="button" data-i18n="draft.leave">Leave</button>
         </div>
       </div>
@@ -186,6 +188,7 @@
         <div id="lobby-title" data-i18n="lobby.title">Loadout</div>
         <div class="menu-head-actions">
           <div data-lang-switch></div>
+          <button id="btn-lobby-invite" class="ghost" type="button" data-i18n="menu.copyInvite">Copy invite</button>
           <button id="btn-lobby-leave" class="ghost" type="button" data-i18n="lobby.leave">Leave</button>
         </div>
       </div>
@@ -200,6 +203,16 @@
       </div>
       <section id="army-editor"></section>
     </aside>
+
+    <div id="result-overlay" hidden>
+      <div class="result-card">
+        <div id="result-title"></div>
+        <div id="result-sub"></div>
+        <p id="result-rematch-status"></p>
+        <button id="btn-rematch-ready" type="button"></button>
+        <button id="btn-result-menu" class="ghost" type="button"></button>
+      </div>
+    </div>
 
     <canvas id="game"></canvas>
     <script type="module" src="/src/main.ts"></script>

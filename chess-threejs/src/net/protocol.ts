@@ -92,6 +92,11 @@ export interface ResignMessage {
   type: "resign";
 }
 
+export interface RematchMessage {
+  type: "rematch";
+  ready: boolean;
+}
+
 export interface ListMessage {
   type: "list";
   seats: { code: string; token: string }[];
@@ -108,7 +113,8 @@ export type ClientMessage =
   | PickupMessage
   | DropMessage
   | ActionMessage
-  | ResignMessage;
+  | ResignMessage
+  | RematchMessage;
 
 export interface HostedMessage {
   type: "hosted";
@@ -138,6 +144,7 @@ export interface ResumedMessage {
   state?: PublicState;
   draft?: PublicDraft;
   lobby?: PublicLobby;
+  rematch?: [boolean, boolean];
 }
 
 export interface LobbyStateMessage {
@@ -158,6 +165,12 @@ export interface StateMessage {
   lastPickup?: PickupExecution;
   lastDrop?: DropExecution;
   lastAction?: ActionExecution;
+  rematch?: [boolean, boolean];
+}
+
+export interface RematchStateMessage {
+  type: "rematch-state";
+  ready: [boolean, boolean];
 }
 
 export interface ErrorMessage {
@@ -196,6 +209,7 @@ export type ServerMessage =
   | ResumedMessage
   | DraftStateMessage
   | LobbyStateMessage
+  | RematchStateMessage
   | StateMessage
   | GamesMessage
   | ErrorMessage

@@ -12,7 +12,7 @@ import {
 import { formatClock, remainingNow, type TimeControlId } from "./core/clock";
 import { Draft, DRAFT_PICK_MODES, clampBanCount, normalizeDraftConfig, type DraftPickModeId, type DraftUniq } from "./core/draft";
 import { defaultBoardForFormat, parseArmyFormat, type ArmyFormat, type MatchMode } from "./core/format";
-import { Game, actionNotice, previewNodesForAction, type ActionExecution, type MoveExecution } from "./core/gameState";
+import { Game, actionNotice, previewNodesForAction, type ActionExecution, type ArmySpec, type MoveExecution } from "./core/gameState";
 import { actionCooldownLabel, actionReady } from "./core/cooldown";
 import { itemIsSpent, itemUsesLabel } from "./core/items";
 import {
@@ -116,6 +116,16 @@ const draftRootEl = document.querySelector<HTMLElement>("#draft-root")!;
 const lobbyCardEl = document.querySelector<HTMLElement>("#lobby-card")!;
 const lobbyRoomEl = document.querySelector<HTMLElement>("#lobby-room")!;
 const lobbyRootEl = document.querySelector<HTMLElement>("#lobby-root")!;
+const menuInviteBtn = document.querySelector<HTMLButtonElement>("#btn-copy-invite")!;
+const draftInviteBtn = document.querySelector<HTMLButtonElement>("#btn-draft-invite")!;
+const lobbyInviteBtn = document.querySelector<HTMLButtonElement>("#btn-lobby-invite")!;
+const hudInviteBtn = document.querySelector<HTMLButtonElement>("#btn-hud-invite")!;
+const resultOverlayEl = document.querySelector<HTMLElement>("#result-overlay")!;
+const resultTitleEl = document.querySelector("#result-title")!;
+const resultSubEl = document.querySelector("#result-sub")!;
+const resultRematchStatusEl = document.querySelector("#result-rematch-status")!;
+const rematchReadyBtn = document.querySelector<HTMLButtonElement>("#btn-rematch-ready")!;
+const resultMenuBtn = document.querySelector<HTMLButtonElement>("#btn-result-menu")!;
 const colorP1El = document.querySelector<HTMLInputElement>("#color-p1")!;
 const colorP1SecEl = document.querySelector<HTMLInputElement>("#color-p1-sec")!;
 const colorP2El = document.querySelector<HTMLInputElement>("#color-p2")!;
@@ -154,10 +164,13 @@ let draftSelected: string | null = null;
 let clockTick: number | null = null;
 let listedGames: MatchSummary[] = [];
 let roomCode = "";
+let copiedTimer = 0;
 let matchFromDraft = false;
 let playNet: "offline" | "online" = "offline";
 let currentLobby: PublicLobby | null = null;
 let seatStyles: [PlayerStyle, PlayerStyle] = [{ ...DEFAULT_STYLE_P1 }, { ...DEFAULT_STYLE_P2 }];
+let rematchReady: [boolean, boolean] = [false, false];
+let lastSetup: { p1: ArmySpec; p2: ArmySpec; colors: [PlayerStyle, PlayerStyle]; board: BoardKind } | null = null;
 
 function fillSelect(
   el: HTMLSelectElement,
@@ -213,6 +226,7 @@ function applyLocale(next: Locale): void {
   if (!lobbyCardEl.hidden && currentLobby) showLobbyScreen(currentLobby);
   else if (!draftCardEl.hidden && draft) showDraftScreen(draft);
   if (publicState && document.body.classList.contains("playing")) refreshHud();
+  if (publicState && !resultOverlayEl.hidden) showResultOverlay(publicState);
 }
 
 function refreshSettingsForm(): void {
@@ -393,6 +407,7 @@ function showDraftScreen(next: Draft, code?: string): void {
   document.body.classList.remove("playing");
   gameHudEl.hidden = true;
   draftCardEl.hidden = false;
+  syncInviteButtons();
   if (roomCode) draftRoomEl.textContent = t("draft.room", { code: roomCode });
   else draftRoomEl.textContent = mode === "offline" ? t("draft.hotseat") : "";
   view.setColors(seatStyles);
@@ -425,6 +440,7 @@ function showLobbyScreen(lobby: PublicLobby): void {
   document.body.classList.remove("playing");
   gameHudEl.hidden = true;
   lobbyCardEl.hidden = false;
+  syncInviteButtons();
   lobbyRoomEl.textContent = roomCode ? t("draft.room", { code: roomCode }) : "";
   renderLobby(lobbyRootEl, viewLobby, localPlayerId, {
     armies: armyOptions(user, false, lobby.format),
@@ -478,7 +494,10 @@ function beginMatchFromDraft(finished: Draft): void {
   matchFromDraft = true;
   fightLogged = false;
   pendingAction = null;
-  game = new Game(finished.toArmy(0), seatStyles, boardKind(), finished.toArmy(1), {
+  const p1 = finished.toArmy(0);
+  const p2 = finished.toArmy(1);
+  rememberLastSetup(p1, p2, seatStyles, boardKind());
+  game = new Game(p1, seatStyles, boardKind(), p2, {
     autoPickupItems: user.settings.autoPickupItems,
     timeControl,
     ...chosenScatter(),
@@ -492,6 +511,8 @@ function beginMatchFromDraft(finished: Draft): void {
 }
 
 function leaveRoom(): void {
+  hideResultOverlay();
+  rematchReady = [false, false];
   const wasOnline = mode === "online";
   const wasDraft = !draftCardEl.hidden;
   mode = "menu";
@@ -500,6 +521,7 @@ function leaveRoom(): void {
   hideLobby();
   currentLobby = null;
   roomCode = "";
+  syncInviteButtons();
   draftRoomEl.textContent = "";
   lobbyRoomEl.textContent = "";
   setArmyEditorOpen(false);
@@ -621,6 +643,95 @@ function showGame(): void {
   hideLobby();
   document.body.classList.add("playing");
   gameHudEl.hidden = false;
+  syncInviteButtons();
+}
+
+function hideResultOverlay(): void {
+  resultOverlayEl.hidden = true;
+}
+
+function resultHeadline(state: PublicState): string {
+  if (state.endReason === GameEndReason.Stalemate) return t("result.draw");
+  if (mode === "online") {
+    return state.winnerId === localPlayerId ? t("result.youWin") : t("result.youLose");
+  }
+  return state.winnerId === 0 ? t("result.p1Win") : t("result.p2Win");
+}
+
+function showResultOverlay(state: PublicState): void {
+  resultTitleEl.textContent = resultHeadline(state);
+  resultSubEl.textContent = statusText(state);
+  resultMenuBtn.textContent = t("result.menu");
+  const mine = rematchReady[localPlayerId];
+  const other = rematchReady[localPlayerId === 0 ? 1 : 0];
+  if (mode === "offline") {
+    rematchReadyBtn.textContent = t("result.rematch");
+    rematchReadyBtn.classList.remove("is-on");
+    rematchReadyBtn.setAttribute("aria-pressed", "false");
+    resultRematchStatusEl.textContent = "";
+  } else {
+    rematchReadyBtn.textContent = mine ? t("result.readyOn") : t("result.ready");
+    rematchReadyBtn.classList.toggle("is-on", mine);
+    rematchReadyBtn.setAttribute("aria-pressed", mine ? "true" : "false");
+    resultRematchStatusEl.textContent = mine
+      ? t("result.waitingOpp")
+      : other
+        ? t("result.oppReady")
+        : t("result.oppWaiting");
+  }
+  resultOverlayEl.hidden = false;
+}
+
+function rememberLastSetup(p1: ArmySpec, p2: ArmySpec, colors: [PlayerStyle, PlayerStyle], board: BoardKind): void {
+  lastSetup = { p1, p2, colors, board };
+}
+
+function startOfflineRematch(): void {
+  if (!lastSetup) return;
+  fightLogged = false;
+  pendingAction = null;
+  rematchReady = [false, false];
+  game = new Game(lastSetup.p1, lastSetup.colors, lastSetup.board, lastSetup.p2, {
+    autoPickupItems: user.settings.autoPickupItems,
+    timeControl,
+    ...chosenScatter(),
+  });
+  game.startClock();
+  hideResultOverlay();
+  showGame();
+  view.refreshAtmosphere();
+  applyState(game.toPublic());
+}
+
+function toggleRematchReady(): void {
+  if (mode === "offline") {
+    startOfflineRematch();
+    return;
+  }
+  const next = !rematchReady[localPlayerId];
+  rematchReady[localPlayerId] = next;
+  if (publicState) showResultOverlay(publicState);
+  try {
+    net.send({ type: "rematch", ready: next });
+  } catch (err) {
+    refreshHud(err instanceof Error ? err.message : "tip.loadoutFailed");
+  }
+}
+
+function backToMenu(): void {
+  hideResultOverlay();
+  rematchReady = [false, false];
+  if (mode === "online") {
+    leaveRoom();
+    return;
+  }
+  mode = "menu";
+  game = null;
+  publicState = null;
+  selectedUnitId = null;
+  pendingAction = null;
+  document.body.classList.remove("playing");
+  gameHudEl.hidden = true;
 }
 
 function statusText(state: PublicState): string {
@@ -971,6 +1082,8 @@ function applyState(state: PublicState, notice?: string): void {
   refreshHighlights();
   refreshPickup();
   refreshHud(notice);
+  if (state.phase === GamePhase.Ended) showResultOverlay(state);
+  else hideResultOverlay();
 }
 
 function recordFightIfNeeded(state: PublicState): void {
@@ -1070,6 +1183,7 @@ function playOffline(): void {
   pendingAction = null;
   localPlayerId = 0;
   user = setActiveArmy(armyEl.value);
+  rememberLastSetup(chosenRoster(), chosenGuestRoster(), chosenColors(), boardKind());
   game = new Game(chosenRoster(), chosenColors(), boardKind(), chosenGuestRoster(), {
     autoPickupItems: user.settings.autoPickupItems,
     timeControl,
@@ -1171,6 +1285,10 @@ function inviteUrl(code: string): string {
   const url = new URL(location.href);
   url.search = "";
   url.hash = "";
+  let path = url.pathname;
+  if (path.endsWith("index.html")) path = path.slice(0, -"index.html".length);
+  if (!path.endsWith("/")) path += "/";
+  url.pathname = path;
   url.searchParams.set("code", code.trim().toUpperCase());
   return url.toString();
 }
@@ -1189,22 +1307,90 @@ function rememberInvite(code: string): void {
   }
 }
 
-async function copyInvite(code = joinCodeEl.value.trim().toUpperCase() || roomCode || lastMatchSeat()?.code || ""): Promise<void> {
-  if (code.length < 4) {
+function resolveInviteCode(explicit?: string): string {
+  const clean = (raw: string) => raw.trim().toUpperCase();
+  if (explicit && explicit.trim().length >= 4) return clean(explicit);
+  if (roomCode.length >= 4) return clean(roomCode);
+  const typed = clean(joinCodeEl.value);
+  if (typed.length >= 4) return typed;
+  return clean(lastMatchSeat()?.code ?? "");
+}
+
+function inviteButtons(): HTMLButtonElement[] {
+  return [menuInviteBtn, draftInviteBtn, lobbyInviteBtn, hudInviteBtn];
+}
+
+function syncInviteButtons(): void {
+  const has = roomCode.length >= 4;
+  draftInviteBtn.hidden = !has;
+  lobbyInviteBtn.hidden = !has;
+  hudInviteBtn.hidden = !has;
+}
+
+function flashInvite(ok: boolean): void {
+  const label = t(ok ? "menu.copied" : "menu.copyFailed");
+  for (const btn of inviteButtons()) {
+    if (btn.hidden) continue;
+    btn.classList.toggle("is-copied", ok);
+    btn.classList.toggle("is-copy-fail", !ok);
+    btn.textContent = label;
+  }
+  window.clearTimeout(copiedTimer);
+  copiedTimer = window.setTimeout(() => {
+    for (const btn of inviteButtons()) {
+      btn.classList.remove("is-copied", "is-copy-fail");
+      btn.textContent = t("menu.copyInvite");
+    }
+  }, 1600);
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* HTTP and some embeds reject clipboard.writeText */
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
+}
+
+async function copyInvite(code?: string): Promise<void> {
+  const resolved = resolveInviteCode(code);
+  if (resolved.length < 4) {
     setMenuStatus("tip.hostCodeFirst");
+    flashInvite(false);
     return;
   }
-  const url = inviteUrl(code);
-  rememberInvite(code);
-  joinCodeEl.value = code;
-  try {
-    await navigator.clipboard.writeText(url);
+  const url = inviteUrl(resolved);
+  rememberInvite(resolved);
+  const ok = await writeClipboard(url);
+  flashInvite(ok);
+  if (ok) {
     setMenuStatus(t("tip.inviteCopied", { url }));
-    if (!draftCardEl.hidden) draftRoomEl.textContent = t("draft.inviteCopied", { code });
-    if (!lobbyCardEl.hidden) lobbyRoomEl.textContent = t("draft.inviteCopied", { code });
-  } catch {
-    setMenuStatus(url);
+    if (!draftCardEl.hidden) draftRoomEl.textContent = t("draft.inviteCopied", { code: resolved });
+    if (!lobbyCardEl.hidden) lobbyRoomEl.textContent = t("draft.inviteCopied", { code: resolved });
+    return;
   }
+  setMenuStatus(url);
+  if (!draftCardEl.hidden) draftRoomEl.textContent = url;
+  if (!lobbyCardEl.hidden) lobbyRoomEl.textContent = url;
 }
 
 function rememberSeat(msg: HostedMessage | JoinedMessage | ResumedMessage): void {
@@ -1218,20 +1404,19 @@ function takeOnlineSeat(msg: HostedMessage | JoinedMessage | ResumedMessage, not
   mode = "online";
   localPlayerId = msg.playerId;
   roomCode = msg.code;
+  rematchReady = msg.type === "resumed" && msg.rematch ? msg.rematch : [false, false];
   if (msg.lobby) applyLobby(msg.lobby);
   seatStyles[localPlayerId] = user.style;
   if (msg.draft) {
     matchFromDraft = true;
     showDraftScreen(Draft.fromPublic(msg.draft), msg.code);
     pushSeatSetup();
-    if (msg.type === "hosted") void copyInvite(msg.code);
     return;
   }
   if (!msg.state || msg.type === "hosted") {
     matchFromDraft = false;
     showLobbyScreen(msg.lobby ?? pendingLobby());
     pushSeatSetup();
-    if (msg.type === "hosted") void copyInvite(msg.code);
     return;
   }
   matchFromDraft = false;
@@ -1495,7 +1680,18 @@ net.onMessage = (msg) => {
     else if (!document.body.classList.contains("playing")) showLobbyScreen(msg.lobby);
     return;
   }
+  if (msg.type === "rematch-state") {
+    rematchReady = msg.ready;
+    if (publicState?.phase === GamePhase.Ended) showResultOverlay(publicState);
+    return;
+  }
   if (msg.type === "state") {
+    if (msg.rematch) rematchReady = msg.rematch;
+    if (msg.state.phase === GamePhase.Playing) {
+      fightLogged = false;
+      rematchReady = [false, false];
+      if (document.body.classList.contains("playing")) view.refreshAtmosphere();
+    }
     if (!draftCardEl.hidden || !lobbyCardEl.hidden) {
       showGame();
       netInfoEl.textContent = roomCode ? t("net.roomYou", { code: roomCode, n: localPlayerId + 1 }) : "";
@@ -1545,10 +1741,15 @@ document.querySelector("#btn-play")!.addEventListener("click", () => {
   else playOffline();
 });
 document.querySelector("#btn-join")!.addEventListener("click", () => void joinOnline());
-document.querySelector("#btn-copy-invite")!.addEventListener("click", () => void copyInvite());
+menuInviteBtn.addEventListener("click", () => void copyInvite());
 document.querySelector("#btn-resign")!.addEventListener("click", resign);
 document.querySelector("#btn-draft-leave")!.addEventListener("click", leaveRoom);
 document.querySelector("#btn-lobby-leave")!.addEventListener("click", leaveRoom);
+draftInviteBtn.addEventListener("click", () => void copyInvite());
+lobbyInviteBtn.addEventListener("click", () => void copyInvite());
+hudInviteBtn.addEventListener("click", () => void copyInvite());
+rematchReadyBtn.addEventListener("click", toggleRematchReady);
+resultMenuBtn.addEventListener("click", backToMenu);
 
 function fillPickModes(): void {
   draftPickModeEl.replaceChildren();
@@ -1652,6 +1853,10 @@ document.querySelector("#btn-close-army-editor")!.addEventListener("click", () =
 });
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (!resultOverlayEl.hidden) {
+    backToMenu();
+    return;
+  }
   if (!draftCardEl.hidden || !lobbyCardEl.hidden) {
     leaveRoom();
     return;

@@ -10,7 +10,7 @@ const HEX = [new THREE.Color(0xf0d6b0), new THREE.Color(0xb07840), new THREE.Col
 const SQUARE = [LIGHT, MID, DARK];
 
 const WORLD_TILES = 64;
-const TEX_SIZE = 2048;
+const TEX_SIZE = 1024;
 const FRAME = 0.22;
 const FADE_START = 1.1;
 const FADE_END = 13;

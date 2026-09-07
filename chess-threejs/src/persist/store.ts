@@ -176,7 +176,7 @@ function readSettings(raw: unknown): UserSettings {
     : "free";
   return {
     locale: isLocale(o.locale) ? o.locale : detectLocale(),
-    autoPickupItems: o.autoPickupItems === true,
+    autoPickupItems: o.autoPickupItems !== false,
     matchMode,
     armyFormat,
     board,
@@ -192,6 +192,7 @@ function readSettings(raw: unknown): UserSettings {
 
 function normalizeSettings(raw: unknown, storeVersion: number = USER_STORE_VERSION): UserSettings {
   const settings = readSettings(raw);
+  if (storeVersion < 7) settings.autoPickupItems = true;
   if (storeVersion >= 4) return settings;
   return {
     ...settings,

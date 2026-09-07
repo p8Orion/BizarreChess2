@@ -34,6 +34,7 @@ interface Room {
   symmetricObstacles: boolean;
   seed: number;
   setup: MatchSetup;
+  rematchReady: [boolean, boolean];
 }
 
 const rooms = new Map<string, Room>();
@@ -210,6 +211,7 @@ function roomFromRecord(record: MatchRecord): Room {
     symmetricObstacles: record.setup.symmetricObstacles,
     seed: record.seed,
     setup: record.setup,
+    rematchReady: [false, false],
   };
 }
 
@@ -268,6 +270,7 @@ function pushState(room: Room, extra: Omit<StateMessage, "type" | "state"> = {})
       lastPickup: extra.lastPickup,
       lastDrop: extra.lastDrop,
       lastAction,
+      rematch: room.game!.phase === GamePhase.Ended ? room.rematchReady : undefined,
     });
   };
   deliver(room.host, 0);
@@ -292,10 +295,22 @@ function broadcastLobby(room: Room): void {
   send(room.guest, message);
 }
 
-function seatPayload(room: Room, playerId: number): { state?: PublicState; draft?: PublicDraft; lobby?: PublicLobby } {
+function seatPayload(
+  room: Room,
+  playerId: number
+): { state?: PublicState; draft?: PublicDraft; lobby?: PublicLobby; rematch?: [boolean, boolean] } {
   if (room.draft) return { draft: room.draft.toPublic(), lobby: publicLobby(room) };
-  if (room.game) return { state: room.game.toPublic(playerId) };
+  if (room.game) {
+    const rematch = room.game.phase === GamePhase.Ended ? room.rematchReady : undefined;
+    return { state: room.game.toPublic(playerId), rematch };
+  }
   return { lobby: publicLobby(room) };
+}
+
+function broadcastRematch(room: Room): void {
+  const message: ServerMessage = { type: "rematch-state", ready: room.rematchReady };
+  send(room.host, message);
+  send(room.guest, message);
 }
 
 function tokenOf(room: Room, playerId: number): string {
@@ -306,8 +321,15 @@ function startMatchFromDraft(room: Room): void {
   const draft = room.draft;
   if (!draft || draft.phase !== "done") return;
   const colors: [PlayerStyle, PlayerStyle] = [room.loadouts[0].style, room.loadouts[1].style];
+  const army0 = draft.toArmy(0);
+  const army1 = draft.toArmy(1);
   room.colors = colors;
-  room.game = new Game(draft.toArmy(0), colors, room.board, draft.toArmy(1), {
+  room.loadouts[0].roster = army0;
+  room.loadouts[1].roster = army1;
+  room.loadouts[0].ready = false;
+  room.loadouts[1].ready = false;
+  room.rematchReady = [false, false];
+  room.game = new Game(army0, colors, room.board, army1, {
     autoPickupItems: room.autoPickupItems,
     itemAmount: room.itemAmount,
     obstacleAmount: room.obstacleAmount,
@@ -328,6 +350,9 @@ function tryStartNormal(room: Room): boolean {
   if (!a.ready || !b.ready || !a.roster || !b.roster) return false;
   const colors: [PlayerStyle, PlayerStyle] = [a.style, b.style];
   room.colors = colors;
+  a.ready = false;
+  b.ready = false;
+  room.rematchReady = [false, false];
   room.game = new Game(a.roster, colors, room.board, b.roster, {
     autoPickupItems: room.autoPickupItems,
     itemAmount: room.itemAmount,
@@ -339,6 +364,30 @@ function tryStartNormal(room: Room): boolean {
   room.game.startClock();
   persist(room, 0, "start", { board: room.board });
   pushState(room, { notice: "notice.matchStarted" });
+  return true;
+}
+
+function tryStartRematch(room: Room): boolean {
+  if (!room.game || room.game.phase !== GamePhase.Ended) return false;
+  if (!room.rematchReady[0] || !room.rematchReady[1]) return false;
+  const [a, b] = room.loadouts;
+  if (!a.roster || !b.roster) return false;
+  const colors: [PlayerStyle, PlayerStyle] = [a.style, b.style];
+  room.colors = colors;
+  room.seed = makeSeed();
+  room.setup = { ...room.setup, seed: room.seed, colors, hostRoster: a.roster, guestRoster: b.roster };
+  room.rematchReady = [false, false];
+  room.game = new Game(a.roster, colors, room.board, b.roster, {
+    autoPickupItems: room.autoPickupItems,
+    itemAmount: room.itemAmount,
+    obstacleAmount: room.obstacleAmount,
+    symmetricObstacles: room.symmetricObstacles,
+    seed: room.seed,
+    timeControl: room.setup.timeControl,
+  });
+  room.game.startClock();
+  persist(room, 0, "rematch", { board: room.board, seed: room.seed });
+  pushState(room, { notice: "notice.rematch" });
   return true;
 }
 
@@ -377,7 +426,10 @@ function leave(ws: WebSocket): void {
   if (seatSocket(room, playerId) === ws) setSeat(room, playerId, null);
   const other = playerId === 0 ? room.guest : room.host;
   send(other, { type: "opponent-disconnected" });
-  if (!room.game) broadcastLobby(room);
+  if (room.game?.phase === GamePhase.Ended) {
+    room.rematchReady[playerId] = false;
+    broadcastRematch(room);
+  } else if (!room.game) broadcastLobby(room);
   forgetIfEmpty(room);
 }
 
@@ -446,7 +498,7 @@ wss.on("connection", (ws) => {
           seed,
           board: resolveBoard(msg.board, format),
           colors: [loadouts[0].style, loadouts[1].style],
-          autoPickupItems: msg.autoPickupItems === true,
+          autoPickupItems: msg.autoPickupItems !== false,
           itemAmount: scatter.itemAmount,
           obstacleAmount: scatter.obstacleAmount,
           symmetricObstacles: scatter.symmetricObstacles,
@@ -473,6 +525,7 @@ wss.on("connection", (ws) => {
           symmetricObstacles: scatter.symmetricObstacles,
           seed,
           setup,
+          rematchReady: [false, false],
         };
         rooms.set(code, room);
         sockets.set(ws, { room, playerId: 0 });
@@ -487,7 +540,7 @@ wss.on("connection", (ws) => {
         seed,
         board: resolveBoard(msg.board, format),
         colors: [loadouts[0].style, loadouts[1].style],
-        autoPickupItems: msg.autoPickupItems === true,
+        autoPickupItems: msg.autoPickupItems !== false,
         itemAmount: scatter.itemAmount,
         obstacleAmount: scatter.obstacleAmount,
         symmetricObstacles: scatter.symmetricObstacles,
@@ -513,6 +566,7 @@ wss.on("connection", (ws) => {
         symmetricObstacles: scatter.symmetricObstacles,
         seed,
         setup,
+        rematchReady: [false, false],
       };
       rooms.set(code, room);
       sockets.set(ws, { room, playerId: 0 });
@@ -648,6 +702,18 @@ wss.on("connection", (ws) => {
       });
       if (tryStartNormal(room)) return;
       broadcastLobby(room);
+      return;
+    }
+
+    if (msg.type === "rematch") {
+      const room = seat.room;
+      if (room.game?.phase !== GamePhase.Ended) {
+        send(ws, { type: "error", message: "err.matchNotStarted" });
+        return;
+      }
+      room.rematchReady[seat.playerId] = msg.ready === true;
+      if (tryStartRematch(room)) return;
+      broadcastRematch(room);
       return;
     }
 

@@ -5,6 +5,15 @@ Registro vivo de incidentes y soluciones de **este proyecto**.
 
 ---
 
+## 2026-09-07 — Copy invite copiaba mal o no avisaba
+
+**Síntoma:** En draft/lobby el link no servía o no se notaba que se copió.
+**Causa:** Prefería el input del menú (código viejo). `clipboard.writeText` falla en HTTP. El fallback iba al status del menú, que en esas pantallas no se ve.
+**Solución:** Usar el código de la sala actual. URL canónica `.../chess/?code=`. Fallback `execCommand`. El botón dice “¡Copiado!”.
+**Prevención:** No copiar desde un input oculto. No depender solo de Clipboard API.
+
+---
+
 ## 2026-09-07 — Lobby Ready se apagaba al reabrir o reenviar el army
 
 **Síntoma:** Ready no quedaba pulsado. Al Leave/Reopen volvía a “picking”.
