@@ -8,9 +8,11 @@ import {
   normalizeHex,
   type PlayerStyle,
 } from "./core/colors";
+import { Draft, DRAFT_PICK_MODES, clampBanCount, normalizeDraftConfig, type DraftPickModeId, type DraftUniq } from "./core/draft";
+import { defaultBoardForFormat, type ArmyFormat, type MatchMode } from "./core/format";
 import { Game, actionNotice, previewNodesForAction, type ActionExecution, type MoveExecution } from "./core/gameState";
 import { pickupActionLabel } from "./core/items";
-import { BOARD_OPTIONS } from "./core/board";
+import { boardsForFormat, boardSupportsFormat } from "./core/board";
 import { allTargets, GameEndReason, GamePhase, PublicState, UnitState } from "./core/types";
 import { movesForUnit, transmutationTargets } from "./core/validator";
 import { NetClient } from "./net/client";
@@ -28,12 +30,16 @@ import {
   setActiveArmy,
   setArmySlot,
   setGuestArmy,
+  setUserSettings,
   setUserStyles,
   syncArmyFromUnits,
 } from "./persist/store";
 import { GameView, boardFromState, itemOnNode, unitOnNode, type InspectHover } from "./render/GameView";
 import { PortraitView } from "./render/PortraitView";
 import { renderArmyEditor } from "./ui/armyEditor";
+import { renderDraft } from "./ui/draft";
+import { bindItemIconLoader, itemIconUrl } from "./ui/itemIcon";
+import { bindPieceIconLoader } from "./ui/pieceIcon";
 import { pieceDisplayName, pieceMoveText } from "./ui/pieceInfo";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
@@ -60,7 +66,20 @@ const armyEditorBtn = document.querySelector<HTMLButtonElement>("#btn-army-edito
 const armyEditorWindow = document.querySelector<HTMLElement>("#army-editor-window")!;
 const armyEditorTitle = document.querySelector("#army-editor-title")!;
 const armyEditorEl = document.querySelector<HTMLElement>("#army-editor")!;
+const settingsBtn = document.querySelector<HTMLButtonElement>("#btn-settings")!;
+const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
+const autoPickupEl = document.querySelector<HTMLInputElement>("#setting-auto-pickup")!;
 const boardEl = document.querySelector<HTMLSelectElement>("#board-kind")!;
+const armyRostersEl = document.querySelector<HTMLElement>("#army-rosters")!;
+const matchModeEl = document.querySelector<HTMLElement>("#match-mode")!;
+const armyFormatEl = document.querySelector<HTMLElement>("#army-format")!;
+const draftOptionsEl = document.querySelector<HTMLElement>("#draft-options")!;
+const draftBanCountEl = document.querySelector<HTMLInputElement>("#draft-ban-count")!;
+const draftUniqEl = document.querySelector<HTMLSelectElement>("#draft-uniq")!;
+const draftPickModeEl = document.querySelector<HTMLElement>("#draft-pick-mode")!;
+const draftCardEl = document.querySelector<HTMLElement>("#draft-card")!;
+const draftRoomEl = document.querySelector<HTMLElement>("#draft-room")!;
+const draftRootEl = document.querySelector<HTMLElement>("#draft-root")!;
 const colorP1El = document.querySelector<HTMLInputElement>("#color-p1")!;
 const colorP1SecEl = document.querySelector<HTMLInputElement>("#color-p1-sec")!;
 const colorP2El = document.querySelector<HTMLInputElement>("#color-p2")!;
@@ -69,6 +88,8 @@ const patternP1El = document.querySelector<HTMLSelectElement>("#pattern-p1")!;
 const patternP2El = document.querySelector<HTMLSelectElement>("#pattern-p2")!;
 
 const view = new GameView(canvas);
+bindItemIconLoader((item) => view.createItemVisual(item));
+bindPieceIconLoader((unit) => view.createPieceVisual(unit));
 const portrait = new PortraitView(portraitCanvas, (unit) => view.createPieceVisual(unit));
 const hoverPortrait = new PortraitView(
   hoverPortraitCanvas,
@@ -86,6 +107,12 @@ let pendingAction: { unitId: number; actionId: string } | null = null;
 let inspectHover: InspectHover | null = null;
 let user = loadUser();
 let fightLogged = false;
+let matchMode: MatchMode = user.settings.matchMode;
+let armyFormat: ArmyFormat = user.settings.armyFormat;
+let draftPickMode: DraftPickModeId = user.settings.draftPickMode;
+let draft: Draft | null = null;
+let roomCode = "";
+let matchFromDraft = false;
 
 function fillSelect(
   el: HTMLSelectElement,
@@ -112,9 +139,151 @@ function setArmyEditorOpen(open: boolean): void {
   armyEditorBtn.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
+function setSettingsOpen(open: boolean): void {
+  settingsPanel.hidden = !open;
+  settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function refreshSettingsForm(): void {
+  autoPickupEl.checked = user.settings.autoPickupItems;
+}
+
+function setChoice(row: HTMLElement, attr: string, value: string): void {
+  for (const btn of Array.from(row.querySelectorAll<HTMLButtonElement>(".choice"))) {
+    btn.classList.toggle("is-on", btn.dataset[attr] === value);
+  }
+}
+
+function readUniqueness(): DraftUniq {
+  const value = draftUniqEl.value;
+  if (value === "unique" || value === "unique-per-player" || value === "free") return value;
+  return "free";
+}
+
+function chosenDraftConfig() {
+  return normalizeDraftConfig(
+    {
+      format: armyFormat,
+      banCount: clampBanCount(Number(draftBanCountEl.value)),
+      pickMode: draftPickMode,
+      uniqueness: readUniqueness(),
+    },
+    armyFormat
+  );
+}
+
+function persistLobby(): void {
+  user = setUserSettings({
+    matchMode,
+    armyFormat,
+    board: boardKind(),
+    draftBanCount: clampBanCount(Number(draftBanCountEl.value)),
+    draftPickMode,
+    draftUniqueness: readUniqueness(),
+  });
+}
+
+function refreshBoardSelect(): void {
+  const options = boardsForFormat(armyFormat);
+  const current = boardEl.value || user.settings.board;
+  const selected = options.some((option) => option.id === current) ? current : defaultBoardForFormat(armyFormat);
+  fillSelect(boardEl, options, selected);
+}
+
+function refreshModeForm(): void {
+  setChoice(matchModeEl, "mode", matchMode);
+  setChoice(armyFormatEl, "format", armyFormat);
+  setChoice(draftPickModeEl, "pick", draftPickMode);
+  draftBanCountEl.value = String(clampBanCount(Number(draftBanCountEl.value)));
+  draftOptionsEl.hidden = matchMode !== "draft";
+  armyRostersEl.hidden = matchMode === "draft";
+  if (matchMode === "draft") setArmyEditorOpen(false);
+  refreshBoardSelect();
+  persistLobby();
+}
+
+function hideDraft(): void {
+  document.body.classList.remove("drafting");
+  draftCardEl.hidden = true;
+  draft = null;
+}
+
+function showDraftScreen(next: Draft, code?: string): void {
+  draft = next;
+  roomCode = code ?? roomCode;
+  document.body.classList.add("drafting");
+  document.body.classList.remove("playing");
+  gameHudEl.hidden = true;
+  draftCardEl.hidden = false;
+  if (roomCode) draftRoomEl.textContent = `Room ${roomCode}`;
+  else draftRoomEl.textContent = mode === "offline" ? "Hotseat" : "";
+  view.setColors(chosenColors());
+  renderDraft(draftRootEl, draft, localPlayerId, mode === "offline", {
+    onChoose: (piece) => chooseDraftPiece(piece),
+  });
+}
+
+function chooseDraftPiece(piece: string): void {
+  if (!draft) return;
+  const action = draft.phase === "ban" ? "ban" : "pick";
+  if (mode === "offline") {
+    const playerId = draft.currentPlayerId;
+    const result = action === "ban" ? draft.tryBan(playerId, piece) : draft.tryPick(playerId, piece);
+    if (!result.ok) {
+      menuStatusEl.textContent = result.error ?? "Invalid draft action";
+      showDraftScreen(draft);
+      return;
+    }
+    if (draft.phase === "done") {
+      beginMatchFromDraft(draft);
+      return;
+    }
+    showDraftScreen(draft);
+    return;
+  }
+  try {
+    net.send({ type: "draft-action", action, piece });
+  } catch (err) {
+    menuStatusEl.textContent = err instanceof Error ? err.message : "Draft action failed";
+  }
+}
+
+function beginMatchFromDraft(finished: Draft): void {
+  matchFromDraft = true;
+  fightLogged = false;
+  pendingAction = null;
+  game = new Game(finished.toArmy(0), chosenColors(), boardKind(), finished.toArmy(1), {
+    autoPickupItems: user.settings.autoPickupItems,
+  });
+  hideDraft();
+  showGame();
+  netInfoEl.textContent = "Hotseat — drafted armies";
+  view.refreshAtmosphere();
+  applyState(game.toPublic());
+}
+
+function leaveDraft(): void {
+  const wasOnline = mode === "online";
+  mode = "menu";
+  localPlayerId = 0;
+  hideDraft();
+  roomCode = "";
+  draftRoomEl.textContent = "";
+  if (wasOnline) net.close();
+  menuStatusEl.textContent = "Draft cancelled.";
+}
+
 function refreshArmySelect(): void {
-  fillSelect(armyEl, armyOptions(user), user.activeArmyId);
-  fillSelect(armyP2El, armyOptions(user, true), user.guestArmyId);
+  const p1 = armyOptions(user, false, armyFormat);
+  const p2 = armyOptions(user, true, armyFormat);
+  if (p1.length && !p1.some((option) => option.id === user.activeArmyId)) {
+    user = setActiveArmy(p1[0].id);
+  }
+  if (p2.length && !p2.some((option) => option.id === user.guestArmyId)) {
+    user = setGuestArmy(p2[0].id);
+  }
+  fillSelect(armyEl, p1, user.activeArmyId);
+  fillSelect(armyP2El, p2, user.guestArmyId);
   const army = activeArmy(user);
   armyEditorBtn.textContent = canEditArmy(army) ? "Edit army" : "View army";
   armyEditorTitle.textContent = canEditArmy(army) ? "Edit army" : "Army";
@@ -160,7 +329,10 @@ function persistLocalRoster(): void {
 
 function boardKind(): BoardKind {
   const value = boardEl.value;
-  return BOARD_OPTIONS.some((option) => option.id === value) ? (value as BoardKind) : "lane11";
+  const options = boardsForFormat(armyFormat);
+  return options.some((option) => option.id === value) && boardSupportsFormat(value as BoardKind, armyFormat)
+    ? (value as BoardKind)
+    : defaultBoardForFormat(armyFormat);
 }
 
 function fillPatternSelect(el: HTMLSelectElement, selected: PlayerStyle["pattern"]): void {
@@ -207,6 +379,7 @@ function chosenColors(): [PlayerStyle, PlayerStyle] {
 }
 
 function showGame(): void {
+  hideDraft();
   document.body.classList.add("playing");
   gameHudEl.hidden = false;
 }
@@ -279,7 +452,26 @@ function inspectActions(unit: UnitState): { id: string; label: string; run?: () 
       run: can && !spent ? run : undefined,
     });
   }
+  if (unit.heldItem) {
+    const blocked = !!publicState && !!itemOnNode(publicState, unit.currentNodeId);
+    const can = canAct() && canSelect(unit) && !blocked;
+    actions.push({
+      id: "drop",
+      label: "Drop",
+      run: can ? () => tryDrop(unit.unitId) : undefined,
+    });
+  }
   return actions;
+}
+
+function actionPortraitItem(unit: UnitState, actionId: string) {
+  if (actionId === "pickup") {
+    return publicState ? itemOnNode(publicState, unit.currentNodeId) : undefined;
+  }
+  if (actionId === "drop" || actionId === "PowderBarrel" || actionId === "EscapeScroll" || actionId === "TransmuteScroll") {
+    return unit.heldItem ?? undefined;
+  }
+  return undefined;
 }
 
 function renderActions(el: HTMLElement, unit: UnitState | undefined): void {
@@ -297,7 +489,22 @@ function renderActions(el: HTMLElement, unit: UnitState | undefined): void {
         btn.classList.add("is-armed");
       }
     }
-    btn.textContent = action.label;
+    if (action.id === "drop") btn.className = "action-drop";
+    const portrait = actionPortraitItem(unit, action.id);
+    if (portrait) {
+      const img = document.createElement("img");
+      img.className = "action-portrait";
+      img.alt = "";
+      img.width = 28;
+      img.height = 28;
+      void itemIconUrl(portrait).then((url) => {
+        if (url && img.isConnected) img.src = url;
+      });
+      btn.append(img);
+    }
+    const label = document.createElement("span");
+    label.textContent = action.label;
+    btn.append(label);
     if (action.run) btn.addEventListener("click", action.run);
     else btn.disabled = true;
     btn.addEventListener("pointerenter", () => showActionPreview(unit, action.id));
@@ -393,8 +600,12 @@ function refreshHover(): void {
   hudHoverNameEl.textContent = pieceDisplayName(unit!.definitionId);
   hudHoverMoveEl.textContent = pieceMoveText(unit!);
   renderActions(hoverActionsEl, unit);
-  hoverPortrait.show(unit!);
+    hoverPortrait.show(unit!, ownerPrimary(unit!));
   view.setHoverHighlights(movesForUnit(boardFromState(publicState), unit!, publicState.units), unit!.ownerId);
+}
+
+function ownerPrimary(unit: UnitState): string | undefined {
+  return publicState?.playerColors[unit.ownerId]?.primary;
 }
 
 function actorId(): number {
@@ -443,7 +654,7 @@ function refreshHud(notice?: string): void {
     hudMoveEl.textContent = pieceMoveText(unit);
     renderActions(selectedActionsEl, unit);
     portraitWrap.dataset.empty = "false";
-    portrait.show(unit);
+    portrait.show(unit, ownerPrimary(unit));
   } else {
     hudNameEl.textContent = "Select a piece";
     hudMoveEl.textContent = "Hover a piece or item to inspect. Select yours to move.";
@@ -473,6 +684,7 @@ function applyState(state: PublicState, notice?: string): void {
 
 function recordFightIfNeeded(state: PublicState): void {
   if (fightLogged || state.phase !== GamePhase.Ended) return;
+  if (matchFromDraft) return;
   if (mode === "online" && localPlayerId !== 0) return;
   fightLogged = true;
   const result =
@@ -486,7 +698,11 @@ async function applyMove(prev: PublicState, next: PublicState, move: MoveExecuti
   if (move.success && !move.isRangedCapture && !move.captureBlocked) {
     const landed = itemOnNode(next, move.toNode);
     const unit = next.units.find((u) => u.unitId === move.unitId);
-    if (landed && unit && !unit.heldItem) {
+    if (move.pickedItemId) {
+      const name = unit?.heldItem?.displayName;
+      const tip = name ? `Picked up ${name}` : "Picked up item";
+      extra = extra ? `${extra}\n${tip}` : tip;
+    } else if (landed && unit && !unit.heldItem) {
       const tip = `Landed on a ${landed.displayName} — pick it up next turn`;
       extra = extra ? `${extra}\n${tip}` : tip;
     }
@@ -541,13 +757,24 @@ function refreshHighlights(): void {
 }
 
 function playOffline(): void {
+  persistStylesFromForm();
+  if (matchMode === "draft") {
+    mode = "offline";
+    localPlayerId = 0;
+    matchFromDraft = true;
+    roomCode = "";
+    showDraftScreen(new Draft(chosenDraftConfig(), false));
+    return;
+  }
   mode = "offline";
   fightLogged = false;
+  matchFromDraft = false;
   pendingAction = null;
   localPlayerId = 0;
   user = setActiveArmy(armyEl.value);
-  persistStylesFromForm();
-  game = new Game(chosenRoster(), chosenColors(), boardKind(), chosenGuestRoster());
+  game = new Game(chosenRoster(), chosenColors(), boardKind(), chosenGuestRoster(), {
+    autoPickupItems: user.settings.autoPickupItems,
+  });
   showGame();
   netInfoEl.textContent = "Hotseat — cyan orb is a Force Field; bronze cube is a Crossbow";
   view.refreshAtmosphere();
@@ -558,15 +785,20 @@ async function hostOnline(): Promise<void> {
   try {
     await net.connect();
     fightLogged = false;
-    user = setActiveArmy(armyEl.value);
+    matchFromDraft = matchMode === "draft";
     persistStylesFromForm();
+    if (matchMode !== "draft") user = setActiveArmy(armyEl.value);
     net.send({
       type: "host",
-      army: activeArmy(user).basedOn,
-      roster: chosenRoster(),
-      opponentRoster: chosenGuestRoster(),
+      army: matchMode === "draft" ? undefined : activeArmy(user).basedOn,
+      roster: matchMode === "draft" ? undefined : chosenRoster(),
+      opponentRoster: matchMode === "draft" ? undefined : chosenGuestRoster(),
       board: boardKind(),
       colors: chosenColors(),
+      autoPickupItems: user.settings.autoPickupItems,
+      matchMode,
+      format: armyFormat,
+      draft: matchMode === "draft" ? chosenDraftConfig() : undefined,
     });
   } catch (err) {
     menuStatusEl.textContent = err instanceof Error ? err.message : "Host failed";
@@ -616,6 +848,23 @@ function tryAction(unitId: number, actionId: string, targetNode?: number): void 
       net.send({ type: "action", unitId, actionId, targetNode });
     } catch (err) {
       refreshHud(err instanceof Error ? err.message : "Action failed");
+    }
+  }
+}
+
+function tryDrop(unitId: number): void {
+  if (mode === "offline" && game && publicState) {
+    const result = game.tryDrop(unitId, actorId());
+    const dropped = publicState.units.find((u) => u.unitId === unitId)?.heldItem;
+    const ok = dropped ? `Dropped ${dropped.displayName}` : "Dropped item";
+    applyState(game.toPublic(), result.success ? ok : result.error);
+    return;
+  }
+  if (mode === "online") {
+    try {
+      net.send({ type: "drop", unitId });
+    } catch (err) {
+      refreshHud(err instanceof Error ? err.message : "Drop failed");
     }
   }
 }
@@ -719,13 +968,33 @@ net.onMessage = (msg) => {
   if (msg.type === "hosted" || msg.type === "joined") {
     mode = "online";
     localPlayerId = msg.playerId;
+    roomCode = msg.code;
+    if (msg.draft) {
+      matchFromDraft = true;
+      showDraftScreen(Draft.fromPublic(msg.draft), msg.code);
+      return;
+    }
+    if (!msg.state) {
+      menuStatusEl.textContent = "Room opened without a match";
+      return;
+    }
+    matchFromDraft = false;
     showGame();
     netInfoEl.textContent = `Room ${msg.code} — you are Player ${msg.playerId + 1}`;
     view.refreshAtmosphere();
     applyState(msg.state, msg.type === "joined" ? "Connected" : "Waiting for opponent");
     return;
   }
+  if (msg.type === "draft-state") {
+    showDraftScreen(Draft.fromPublic(msg.draft), roomCode);
+    return;
+  }
   if (msg.type === "state") {
+    if (!draftCardEl.hidden) {
+      showGame();
+      netInfoEl.textContent = roomCode ? `Room ${roomCode} — you are Player ${localPlayerId + 1}` : "";
+      view.refreshAtmosphere();
+    }
     if (msg.lastMove && publicState && msg.lastMove.success) {
       void applyMove(publicState, msg.state, msg.lastMove, msg.notice);
       return;
@@ -738,26 +1007,46 @@ net.onMessage = (msg) => {
     return;
   }
   if (msg.type === "error") {
-    if (mode === "menu") menuStatusEl.textContent = msg.message;
+    if (!draftCardEl.hidden) draftRoomEl.textContent = msg.message;
+    else if (mode === "menu") menuStatusEl.textContent = msg.message;
     else refreshHud(msg.message);
     return;
   }
   if (msg.type === "opponent-left") {
-    refreshHud("Opponent left the room");
+    if (!draftCardEl.hidden) draftRoomEl.textContent = "Opponent left the room";
+    else refreshHud("Opponent left the room");
   }
 };
 
 net.onClose = () => {
-  if (mode === "online") refreshHud("Disconnected from server");
+  if (!draftCardEl.hidden) draftRoomEl.textContent = "Disconnected from server";
+  else if (mode === "online") refreshHud("Disconnected from server");
 };
 
 document.querySelector("#btn-offline")!.addEventListener("click", playOffline);
 document.querySelector("#btn-host")!.addEventListener("click", () => void hostOnline());
 document.querySelector("#btn-join")!.addEventListener("click", () => void joinOnline());
 document.querySelector("#btn-resign")!.addEventListener("click", resign);
+document.querySelector("#btn-draft-leave")!.addEventListener("click", leaveDraft);
 
+function fillPickModes(): void {
+  draftPickModeEl.replaceChildren();
+  for (const option of DRAFT_PICK_MODES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "choice";
+    btn.dataset.pick = option.id;
+    btn.textContent = option.label;
+    btn.title = option.hint;
+    draftPickModeEl.append(btn);
+  }
+}
+
+fillPickModes();
+draftBanCountEl.value = String(user.settings.draftBanCount);
+draftUniqEl.value = user.settings.draftUniqueness;
+refreshModeForm();
 refreshArmySelect();
-fillSelect(boardEl, BOARD_OPTIONS, "lane11");
 applyStyleToForm(0, user.style);
 applyStyleToForm(1, user.guestStyle);
 armyEl.addEventListener("change", () => {
@@ -768,6 +1057,32 @@ armyP2El.addEventListener("change", () => {
   user = setGuestArmy(armyP2El.value);
   refreshArmySelect();
 });
+matchModeEl.addEventListener("click", (event) => {
+  const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-mode]");
+  if (!btn?.dataset.mode) return;
+  matchMode = btn.dataset.mode === "draft" ? "draft" : "normal";
+  refreshModeForm();
+});
+armyFormatEl.addEventListener("click", (event) => {
+  const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-format]");
+  if (!btn?.dataset.format) return;
+  armyFormat = btn.dataset.format === "normal" ? "normal" : "mini";
+  refreshArmySelect();
+  refreshModeForm();
+});
+draftPickModeEl.addEventListener("click", (event) => {
+  const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-pick]");
+  const id = btn?.dataset.pick;
+  if (id !== "pieces-first" && id !== "pawns-first") return;
+  draftPickMode = id;
+  refreshModeForm();
+});
+draftBanCountEl.addEventListener("change", () => {
+  draftBanCountEl.value = String(clampBanCount(Number(draftBanCountEl.value)));
+  persistLobby();
+});
+draftUniqEl.addEventListener("change", persistLobby);
+boardEl.addEventListener("change", persistLobby);
 for (const el of [colorP1El, colorP1SecEl, colorP2El, colorP2SecEl, patternP1El, patternP2El]) {
   el.addEventListener("change", persistStylesFromForm);
 }
@@ -783,8 +1098,21 @@ document.querySelector("#btn-close-army-editor")!.addEventListener("click", () =
   setArmyEditorOpen(false);
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !armyEditorWindow.hidden && mode === "menu") {
-    setArmyEditorOpen(false);
+  if (event.key !== "Escape") return;
+  if (!draftCardEl.hidden) {
+    leaveDraft();
+    return;
   }
+  if (mode !== "menu") return;
+  if (!armyEditorWindow.hidden) {
+    setArmyEditorOpen(false);
+    return;
+  }
+  if (!settingsPanel.hidden) setSettingsOpen(false);
 });
+settingsBtn.addEventListener("click", () => setSettingsOpen(settingsPanel.hidden));
+autoPickupEl.addEventListener("change", () => {
+  user = setUserSettings({ autoPickupItems: autoPickupEl.checked });
+});
+refreshSettingsForm();
 menuStatusEl.textContent = "Colors and armies save on this device. Pieces stay default until they pick up an item.";

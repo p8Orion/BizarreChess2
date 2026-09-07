@@ -50,6 +50,11 @@ export interface MovementPattern {
   leapY: number;
   /** Edge axes this pattern may use. Empty = infer from movement type. */
   axes: string[];
+  /**
+   * If > 0, this is a hurdle hop: must jump a piece and land this many squares beyond it.
+   * The hurdle is never captured; only the landing square is a target.
+   */
+  hopBeyond: number;
   /** If set, this pattern was granted by an item and can be removed on drop. */
   grantedBy?: string;
 }
@@ -66,6 +71,7 @@ export function pattern(partial: Partial<MovementPattern> & { type: MovementType
     leapX: 0,
     leapY: 0,
     axes: [],
+    hopBeyond: 0,
     ...partial,
   };
 }
@@ -249,4 +255,5 @@ export interface PublicState {
   units: UnitState[];
   items: ItemState[];
   playerColors: [PlayerStyle, PlayerStyle];
+  autoPickupItems?: boolean;
 }

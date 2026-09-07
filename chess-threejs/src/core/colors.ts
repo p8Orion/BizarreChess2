@@ -86,3 +86,24 @@ export function randomStyle(ownerId = 0): PlayerStyle {
   return { primary, secondary, pattern };
 }
 
+/** Light pastel wash of a player primary, for portrait backdrops. */
+export function portraitWash(primary: string): string {
+  const n = primary.replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16) / 255;
+  const g = parseInt(n.slice(2, 4), 16) / 255;
+  const b = parseInt(n.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  let h = 0;
+  let s = 0;
+  if (d > 1e-6) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return hslHex(h * 360, Math.min(0.26, s * 0.42 + 0.05), 0.9);
+}
+

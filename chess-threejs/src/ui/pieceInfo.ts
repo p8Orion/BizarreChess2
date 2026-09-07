@@ -1,3 +1,4 @@
+import { PIECES } from "../core/pieces";
 import { MovementPattern, MovementType, UnitState } from "../core/types";
 
 const BLURBS: Record<string, string> = {
@@ -9,6 +10,8 @@ const BLURBS: Record<string, string> = {
   Camel: "Leaps in a long L (3×1). Jumps over pieces.",
   Crossbowman: "Steps one square in any direction without capturing. Shoots diagonally up to 3 squares and stays put.",
   Cannon: "Steps one square orthogonally without capturing. Shoots orthogonally at range 2–4 and stays put.",
+  Grasshopper:
+    "Moves like a queen, but must hop over a piece (friend or foe) and land on the square immediately beyond. Captures the piece it lands on, not the one it hops over.",
   Pawn: "Moves one square forward (two on the first move). Captures one square diagonally forward.",
   Lancer: "Advances forward and can capture that way. May move two squares on its first move.",
   Defender: "Moves one square forward without capturing. May step two forward on its first move (that step can capture).",
@@ -28,6 +31,16 @@ function describePattern(pattern: MovementPattern): string {
   if (pattern.rangedCapture) flags.push("stays put");
   if (pattern.firstMoveOnly) flags.push("first move");
   const extra = flags.length ? ` (${flags.join(", ")})` : "";
+  if (pattern.hopBeyond > 0) {
+    const land = pattern.hopBeyond === 1 ? "the square immediately beyond" : `${pattern.hopBeyond} squares beyond`;
+    const dir =
+      pattern.type === MovementType.Orthogonal
+        ? "orthogonally"
+        : pattern.type === MovementType.Diagonal
+          ? "diagonally"
+          : "along its line";
+    return `Hops ${dir} over a piece and lands on ${land}${extra}.`;
+  }
   switch (pattern.type) {
     case MovementType.Orthogonal:
       return `Orthogonal ${distLabel(pattern.maxDistance)}${extra}.`;
@@ -53,7 +66,7 @@ function describePattern(pattern: MovementPattern): string {
 }
 
 export function pieceDisplayName(definitionId: string): string {
-  return definitionId;
+  return PIECES[definitionId]?.displayName ?? definitionId;
 }
 
 export function pieceMoveText(unit: UnitState): string {

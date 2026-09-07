@@ -42,47 +42,101 @@
     </header>
 
     <div id="menu-card">
-      <div id="title">Bizarre Chess</div>
+      <div class="menu-head">
+        <div id="title">Bizarre Chess</div>
+        <button id="btn-settings" class="ghost" type="button">Settings</button>
+      </div>
+      <div id="settings-panel" hidden>
+        <label class="setting">
+          <input id="setting-auto-pickup" type="checkbox" />
+          <span>
+            <strong>Agarrar los objetos automáticamente</strong>
+            <em>Al aterrizar sobre un objeto, se recoge en el mismo turno.</em>
+          </span>
+        </label>
+      </div>
       <div id="menu-status">Choose army, board, colors and pattern, then play offline or host a room.</div>
       <div id="menu">
-        <button id="btn-offline">Play Offline</button>
-        <label class="army">
-          P1 army
-          <select id="army-kind"></select>
-        </label>
-        <label class="army">
-          P2 army
-          <select id="army-p2"></select>
-        </label>
-        <div class="army-actions">
-          <button id="btn-copy-army" class="ghost" type="button">Copy army</button>
-          <button id="btn-army-editor" class="ghost" type="button">Edit army</button>
-        </div>
-        <label class="board">
-          Board
-          <select id="board-kind"></select>
-        </label>
-        <div class="colors">
-          <div class="player-style">
-            <span>P1</span>
-            <label title="Primary"><input id="color-p1" type="color" value="#f2ebd9" /></label>
-            <label title="Secondary"><input id="color-p1-sec" type="color" value="#c4a15a" /></label>
-            <select id="pattern-p1" aria-label="P1 pattern"></select>
+        <section class="menu-panel" id="army-panel">
+          <div class="sep">Army</div>
+          <div id="army-rosters">
+            <label class="army">
+              P1 army
+              <select id="army-kind"></select>
+            </label>
+            <label class="army">
+              P2 army
+              <select id="army-p2"></select>
+            </label>
+            <div class="army-actions">
+              <button id="btn-copy-army" class="ghost" type="button">Copy army</button>
+              <button id="btn-army-editor" class="ghost" type="button">Edit army</button>
+            </div>
           </div>
-          <div class="player-style">
-            <span>P2</span>
-            <label title="Primary"><input id="color-p2" type="color" value="#33261f" /></label>
-            <label title="Secondary"><input id="color-p2-sec" type="color" value="#8a5a2b" /></label>
-            <select id="pattern-p2" aria-label="P2 pattern"></select>
+          <div class="colors">
+            <div class="player-style">
+              <span>P1</span>
+              <label title="Primary"><input id="color-p1" type="color" value="#f2ebd9" /></label>
+              <label title="Secondary"><input id="color-p1-sec" type="color" value="#c4a15a" /></label>
+              <select id="pattern-p1" aria-label="P1 pattern"></select>
+            </div>
+            <div class="player-style">
+              <span>P2</span>
+              <label title="Primary"><input id="color-p2" type="color" value="#33261f" /></label>
+              <label title="Secondary"><input id="color-p2-sec" type="color" value="#8a5a2b" /></label>
+              <select id="pattern-p2" aria-label="P2 pattern"></select>
+            </div>
           </div>
-        </div>
-        <div class="sep">Online</div>
-        <button id="btn-host">Host</button>
-        <div class="row">
-          <input id="join-code" placeholder="Code" maxlength="6" />
-          <button id="btn-join">Join</button>
-        </div>
+        </section>
+        <section class="menu-panel" id="mode-panel">
+          <div class="sep">Modo de juego</div>
+          <div class="choice-row" id="match-mode" role="radiogroup" aria-label="Match mode">
+            <button type="button" class="choice is-on" data-mode="normal">Normal</button>
+            <button type="button" class="choice" data-mode="draft">Draft</button>
+          </div>
+          <div class="choice-row" id="army-format" role="radiogroup" aria-label="Army format">
+            <button type="button" class="choice" data-format="normal">Normal</button>
+            <button type="button" class="choice is-on" data-format="mini">Mini</button>
+          </div>
+          <div id="draft-options" hidden>
+            <label class="draft-bans-label">
+              Bans
+              <input id="draft-ban-count" type="number" min="0" max="4" value="1" />
+            </label>
+            <label class="draft-uniq-label">
+              Repeats
+              <select id="draft-uniq">
+                <option value="unique">Unique</option>
+                <option value="unique-per-player">Unique per player</option>
+                <option value="free" selected>No restrictions</option>
+              </select>
+            </label>
+            <div class="choice-row" id="draft-pick-mode" role="radiogroup" aria-label="Draft pick order"></div>
+          </div>
+          <label class="board">
+            Mapa
+            <select id="board-kind"></select>
+          </label>
+        </section>
+        <section class="menu-panel" id="play-panel">
+          <button id="btn-offline">Play Offline</button>
+          <div class="sep">Online</div>
+          <button id="btn-host">Host</button>
+          <div class="row">
+            <input id="join-code" placeholder="Code" maxlength="6" />
+            <button id="btn-join">Join</button>
+          </div>
+        </section>
       </div>
+    </div>
+
+    <div id="draft-card" hidden>
+      <div class="menu-head">
+        <div id="draft-title">Draft</div>
+        <button id="btn-draft-leave" class="ghost" type="button">Leave</button>
+      </div>
+      <div id="draft-room"></div>
+      <div id="draft-root"></div>
     </div>
 
     <aside id="army-editor-window" hidden>

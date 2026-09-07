@@ -1,9 +1,11 @@
 import * as THREE from "three";
+import { portraitWash } from "../core/colors";
 import type { ItemState, UnitState } from "../core/types";
+import { createCheckerGround } from "./portraitGround";
 
 export class PortraitView {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(28, 1, 0.08, 20);
+  private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.08, 20);
   private readonly renderer: THREE.WebGLRenderer;
   private readonly clock = new THREE.Clock();
   private visual: THREE.Object3D | null = null;
@@ -11,6 +13,7 @@ export class PortraitView {
   private raf = 0;
   private visible = false;
   private currentKey = "";
+  private look = new THREE.Vector3();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -23,7 +26,7 @@ export class PortraitView {
       antialias: true,
       powerPreference: "low-power",
     });
-    this.renderer.setClearColor(0xfaf3e6, 1);
+    this.setBackdrop();
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene.add(new THREE.AmbientLight(0xfff6ea, 0.78));
     this.scene.add(new THREE.HemisphereLight(0xfff8ee, 0xcbb89a, 0.42));
@@ -33,6 +36,7 @@ export class PortraitView {
     const rim = new THREE.DirectionalLight(0xc9a15b, 0.35);
     rim.position.set(-2.2, 1.4, -1.6);
     this.scene.add(rim);
+    this.scene.add(createCheckerGround());
     this.resize();
     window.addEventListener("resize", this.resize);
     this.loop();
@@ -49,6 +53,7 @@ export class PortraitView {
     this.token += 1;
     this.currentKey = "";
     this.visible = false;
+    this.setBackdrop();
     if (!this.visual) return;
     this.scene.remove(this.visual);
     this.visual.traverse((child) => {
@@ -61,13 +66,14 @@ export class PortraitView {
     this.renderer.clear();
   }
 
-  show(unit: UnitState | null): void {
+  show(unit: UnitState | null, primary?: string): void {
     if (!unit) {
       this.clear();
       return;
     }
+    this.setBackdrop(primary);
     this.showLoaded(
-      `unit:${unit.unitId}:${unit.definitionId}:${unit.ownerId}:${unit.heldItem?.id ?? unit.heldItem?.kind ?? ""}`,
+      `unit:${unit.unitId}:${unit.definitionId}:${unit.ownerId}:${unit.heldItem?.id ?? unit.heldItem?.kind ?? ""}:${primary ?? ""}`,
       () => this.loadVisual(unit)
     );
   }
@@ -77,6 +83,7 @@ export class PortraitView {
       this.clear();
       return;
     }
+    this.setBackdrop();
     this.showLoaded(`item:${item.id}:${item.kind}:${item.model ?? item.shape}`, () => this.loadItemVisual!(item));
   }
 
@@ -112,19 +119,106 @@ export class PortraitView {
 
   private frame(object: THREE.Object3D): void {
     object.updateWorldMatrix(true, true);
-    const box = new THREE.Box3().setFromObject(object);
-    if (box.isEmpty()) return;
+    const pieceBox = this.framingBox(object);
+    const fullBox = new THREE.Box3().setFromObject(object);
+    if (pieceBox.isEmpty() && fullBox.isEmpty()) return;
+    const box = pieceBox.isEmpty() ? fullBox : pieceBox;
     const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const fov = (this.camera.fov * Math.PI) / 180;
-    const fitH = size.y / (2 * Math.tan(fov / 2));
-    const fitW = size.x / (2 * Math.tan(fov / 2) * this.camera.aspect);
-    const dist = Math.max(fitH, fitW, size.z * 0.55) * 1.42;
-    this.camera.position.set(center.x, center.y + size.y * 0.06, center.z + dist);
-    this.camera.near = Math.max(0.05, dist - size.z - 1);
-    this.camera.far = dist + size.z + 4;
-    this.camera.lookAt(center.x, center.y + size.y * 0.02, center.z);
+    const span = fullBox.isEmpty() ? size : fullBox.getSize(new THREE.Vector3());
+    const radius = Math.max(span.x, span.y, span.z, size.x, size.y, size.z) * 0.5;
+    const dist = (radius / Math.tan((this.camera.fov * Math.PI) / 360)) * 1.78;
+    const yaw = THREE.MathUtils.degToRad(46);
+    const pitch = THREE.MathUtils.degToRad(22);
+    const dir = new THREE.Vector3(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      Math.cos(yaw) * Math.cos(pitch)
+    );
+    this.look.set(box.min.x + size.x * 0.5, box.min.y + size.y * 0.42, box.min.z + size.z * 0.5);
+    this.camera.position.copy(this.look).addScaledVector(dir, dist);
+    this.camera.near = Math.max(0.04, dist - radius * 2.6);
+    this.camera.far = dist + radius * 5;
+    this.camera.lookAt(this.look);
     this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld(true);
+    this.panToNdcCenter(box);
+  }
+
+  private framingBox(root: THREE.Object3D): THREE.Box3 {
+    const boxes: THREE.Box3[] = [];
+    root.traverse((child) => {
+      if (this.isDecor(child)) return;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry) return;
+      mesh.geometry.computeBoundingBox();
+      if (!mesh.geometry.boundingBox) return;
+      boxes.push(mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
+    });
+    if (!boxes.length) return new THREE.Box3();
+    let max = 0;
+    for (const box of boxes) {
+      const s = box.getSize(new THREE.Vector3());
+      max = Math.max(max, s.x, s.y, s.z);
+    }
+    const keep = max * 0.08;
+    const merged = new THREE.Box3();
+    let started = false;
+    for (const box of boxes) {
+      const s = box.getSize(new THREE.Vector3());
+      if (Math.max(s.x, s.y, s.z) < keep) continue;
+      if (!started) {
+        merged.copy(box);
+        started = true;
+      } else merged.union(box);
+    }
+    return started ? merged : boxes[0];
+  }
+
+  private isDecor(obj: THREE.Object3D): boolean {
+    let cur: THREE.Object3D | null = obj;
+    while (cur) {
+      if (cur.name === "heldItem" || cur.name === "forcefield") return true;
+      cur = cur.parent;
+    }
+    return false;
+  }
+
+  private panToNdcCenter(box: THREE.Box3): void {
+    const point = new THREE.Vector3();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const x of [box.min.x, box.max.x]) {
+      for (const y of [box.min.y, box.max.y]) {
+        for (const z of [box.min.z, box.max.z]) {
+          point.set(x, y, z).project(this.camera);
+          minX = Math.min(minX, point.x);
+          maxX = Math.max(maxX, point.x);
+          minY = Math.min(minY, point.y);
+          maxY = Math.max(maxY, point.y);
+        }
+      }
+    }
+    if (!Number.isFinite(minX)) return;
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+    const dist = this.camera.position.distanceTo(this.look);
+    const worldH = 2 * Math.tan((this.camera.fov * Math.PI) / 360) * dist;
+    const worldW = worldH * this.camera.aspect;
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    this.camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
+    const pan = right.multiplyScalar(midX * (worldW / 2)).add(up.multiplyScalar(midY * (worldH / 2)));
+    this.camera.position.add(pan);
+    this.look.add(pan);
+    this.camera.lookAt(this.look);
+  }
+
+  private setBackdrop(primary?: string): void {
+    const hex = primary ? portraitWash(primary) : "#5a5854";
+    this.renderer.setClearColor(new THREE.Color(hex), 1);
+    this.canvas.parentElement?.style.setProperty("--portrait-wash", hex);
   }
 
   private readonly resize = (): void => {

@@ -35,6 +35,7 @@ export interface MoveExecution {
   forcefieldConsumedUnitId: number | null;
   droppedItemId: string | null;
   droppedItemNodeId: number | null;
+  pickedItemId: string | null;
   explosionOrigins: number[];
   blastNodes: number[];
   killedUnitIds: number[];
@@ -73,6 +74,20 @@ export interface ActionExecution {
   endReason: GameEndReason;
   turnNumber: number;
   currentPlayerId: number;
+}
+
+export interface DropExecution {
+  success: boolean;
+  error?: string;
+  unitId: number;
+  itemId: string;
+  nodeId: number;
+  turnNumber: number;
+  currentPlayerId: number;
+}
+
+export interface GameSettings {
+  autoPickupItems?: boolean;
 }
 
 export function explosionNodes(board: Board, origin: number): number[] {
@@ -133,16 +148,19 @@ export class Game {
   currentPlayerId = 0;
   winnerId: number | null = null;
   endReason = GameEndReason.None;
+  autoPickupItems = false;
   private nextUnitId = 0;
 
   constructor(
     army: Slot[] | ArmyDef | ArmySpec = BIZARRE_ARMY,
     colors?: unknown,
     boardKind: BoardKind = "lane11",
-    opponentArmy?: Slot[] | ArmyDef | ArmySpec
+    opponentArmy?: Slot[] | ArmyDef | ArmySpec,
+    settings?: GameSettings
   ) {
     this.board = new Board(createBoardByKind(boardKind));
     this.playerColors = normalizeStyles(colors);
+    this.autoPickupItems = settings?.autoPickupItems === true;
     const spec = toArmySpec(army);
     const opponent = opponentArmy
       ? toArmySpec(opponentArmy)
@@ -176,6 +194,7 @@ export class Game {
     game.currentPlayerId = state.currentPlayerId;
     game.winnerId = state.winnerId;
     game.endReason = state.endReason;
+    game.autoPickupItems = state.autoPickupItems === true;
     game.nextUnitId = 0;
     return game;
   }
@@ -198,6 +217,7 @@ export class Game {
       units: structuredClone(this.units),
       items: structuredClone(this.items),
       playerColors: [{ ...this.playerColors[0] }, { ...this.playerColors[1] }],
+      autoPickupItems: this.autoPickupItems,
     };
   }
 
@@ -320,6 +340,8 @@ export class Game {
 
     if (!captureBlocked) this.checkWin();
 
+    const pickedItemId = !captureBlocked && unit.isAlive ? this.maybeAutoPickup(unit) : null;
+
     const gameEnded = this.endReason !== GameEndReason.None;
     if (!gameEnded) this.endTurn();
 
@@ -335,6 +357,7 @@ export class Game {
       forcefieldConsumedUnitId: forcefieldConsumed,
       droppedItemId,
       droppedItemNodeId,
+      pickedItemId,
       explosionOrigins,
       blastNodes,
       killedUnitIds,
@@ -358,11 +381,38 @@ export class Game {
     const item = this.items.find((i) => i.nodeId === unit.currentNodeId);
     if (!item) return this.failPickup("No item at this position");
 
-    unit.heldItem = { ...item, nodeId: -1 };
-    applyItemPick(unit, item);
+    this.giveItem(unit, item);
+
     unit.hasMovedThisTurn = true;
-    this.items = this.items.filter((i) => i.id !== item.id);
     this.endTurn();
+
+    return {
+      success: true,
+      unitId,
+      itemId: item.id,
+      nodeId: unit.currentNodeId,
+      turnNumber: this.turnNumber,
+      currentPlayerId: this.currentPlayerId,
+    };
+  }
+
+  tryDrop(unitId: number, playerId: number): DropExecution {
+    if (playerId !== this.currentPlayerId) return this.failDrop("Not your turn");
+    if (this.phase !== GamePhase.Playing) return this.failDrop("Game is not playing");
+    const unit = this.units.find((u) => u.unitId === unitId);
+    if (!unit) return this.failDrop("Unit not found");
+    if (unit.ownerId !== playerId) return this.failDrop("Not your unit");
+    if (!unit.isAlive) return this.failDrop("Unit is dead");
+    const item = unit.heldItem;
+    if (!item) return this.failDrop("Unit is not holding an item");
+    if (this.items.some((ground) => ground.nodeId === unit.currentNodeId)) {
+      return this.failDrop("There's already an item here");
+    }
+
+    applyItemDrop(unit, item);
+    unit.heldItem = null;
+    item.nodeId = unit.currentNodeId;
+    this.items.push(item);
 
     return {
       success: true,
@@ -645,6 +695,7 @@ export class Game {
       forcefieldConsumedUnitId: null,
       droppedItemId: null,
       droppedItemNodeId: null,
+      pickedItemId: null,
       explosionOrigins: [],
       blastNodes: [],
       killedUnitIds: [],
@@ -659,6 +710,24 @@ export class Game {
 
   private failPickup(error: string): PickupExecution {
     return { success: false, error, unitId: -1, itemId: "", nodeId: -1, turnNumber: this.turnNumber, currentPlayerId: this.currentPlayerId };
+  }
+
+  private failDrop(error: string): DropExecution {
+    return { success: false, error, unitId: -1, itemId: "", nodeId: -1, turnNumber: this.turnNumber, currentPlayerId: this.currentPlayerId };
+  }
+
+  private giveItem(unit: UnitState, item: ItemState): void {
+    unit.heldItem = { ...item, nodeId: -1 };
+    applyItemPick(unit, item);
+    this.items = this.items.filter((ground) => ground.id !== item.id);
+  }
+
+  private maybeAutoPickup(unit: UnitState): string | null {
+    if (!this.autoPickupItems || unit.heldItem) return null;
+    const item = this.items.find((ground) => ground.nodeId === unit.currentNodeId);
+    if (!item) return null;
+    this.giveItem(unit, item);
+    return item.id;
   }
 
   private failAction(error: string): ActionExecution {

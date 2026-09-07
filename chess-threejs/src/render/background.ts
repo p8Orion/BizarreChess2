@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { hexShade } from "../core/hex";
 import type { BoardLayout } from "../core/types";
+import { makeRectCutTest, type WorldRect } from "./boardFrame";
 
 const LIGHT = new THREE.Color(0xf2d9b3);
 const MID = new THREE.Color(0xb07840);
@@ -100,6 +101,7 @@ export function bakeCheckerGround(opts: {
   layout: BoardLayout;
   wood?: THREE.Texture | null;
   cutBoard?: boolean;
+  occupied?: WorldRect[];
 }): CheckerGround {
   const { width, height, layout } = opts;
   const { shades: colors, mid } = backdropColors(layout);
@@ -112,6 +114,11 @@ export function bakeCheckerGround(opts: {
   const hex = layout === "hex-offset";
   const cut = opts.cutBoard !== false;
   const holePad = FRAME - 0.05;
+  const inCut =
+    cut && opts.occupied?.length
+      ? makeRectCutTest(opts.occupied, holePad)
+      : (wx: number, wz: number) =>
+          cut && wx >= -holePad && wx <= width + holePad && wz >= z0 - holePad && wz <= z1 + holePad;
 
   const canvas = document.createElement("canvas");
   canvas.width = TEX_SIZE;
@@ -156,17 +163,12 @@ export function bakeCheckerGround(opts: {
   const mr = Math.round(mid.r * 255);
   const mg = Math.round(mid.g * 255);
   const mb = Math.round(mid.b * 255);
-  const cutX0 = -holePad;
-  const cutZ0 = z0 - holePad;
-  const cutX1 = width + holePad;
-  const cutZ1 = z1 + holePad;
-
   for (let py = 0; py < TEX_SIZE; py++) {
     const wz = minZ + ((py + 0.5) / TEX_SIZE) * size;
     for (let px = 0; px < TEX_SIZE; px++) {
       const i = (py * TEX_SIZE + px) * 4;
       const wx = minX + ((px + 0.5) / TEX_SIZE) * size;
-      if (cut && wx >= cutX0 && wx <= cutX1 && wz >= cutZ0 && wz <= cutZ1) {
+      if (inCut(wx, wz)) {
         data[i + 3] = 0;
         continue;
       }

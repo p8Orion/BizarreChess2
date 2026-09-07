@@ -1,9 +1,11 @@
 import type { PlayerStyle } from "../core/colors";
+import type { DraftConfig, PublicDraft } from "../core/draft";
+import type { ArmyFormat, MatchMode } from "../core/format";
 import type { ArmyKind } from "../core/pieces";
-import type { ActionExecution, ArmySpec, MoveExecution, PickupExecution } from "../core/gameState";
+import type { ActionExecution, ArmySpec, DropExecution, MoveExecution, PickupExecution } from "../core/gameState";
 import type { BoardKind, PublicState } from "../core/types";
 
-export type { ArmyKind, BoardKind };
+export type { ArmyKind, BoardKind, ArmyFormat, MatchMode, DraftConfig, PublicDraft };
 
 export interface HostMessage {
   type: "host";
@@ -12,12 +14,22 @@ export interface HostMessage {
   opponentRoster?: ArmySpec;
   board?: BoardKind;
   colors?: [PlayerStyle, PlayerStyle];
+  autoPickupItems?: boolean;
+  matchMode?: MatchMode;
+  format?: ArmyFormat;
+  draft?: DraftConfig;
 }
 
 export interface JoinMessage {
   type: "join";
   code: string;
   roster?: ArmySpec;
+}
+
+export interface DraftActionMessage {
+  type: "draft-action";
+  action: "ban" | "pick";
+  piece: string;
 }
 
 export interface MoveMessage {
@@ -28,6 +40,11 @@ export interface MoveMessage {
 
 export interface PickupMessage {
   type: "pickup";
+  unitId: number;
+}
+
+export interface DropMessage {
+  type: "drop";
   unitId: number;
 }
 
@@ -42,20 +59,35 @@ export interface ResignMessage {
   type: "resign";
 }
 
-export type ClientMessage = HostMessage | JoinMessage | MoveMessage | PickupMessage | ActionMessage | ResignMessage;
+export type ClientMessage =
+  | HostMessage
+  | JoinMessage
+  | DraftActionMessage
+  | MoveMessage
+  | PickupMessage
+  | DropMessage
+  | ActionMessage
+  | ResignMessage;
 
 export interface HostedMessage {
   type: "hosted";
   code: string;
   playerId: number;
-  state: PublicState;
+  state?: PublicState;
+  draft?: PublicDraft;
 }
 
 export interface JoinedMessage {
   type: "joined";
   code: string;
   playerId: number;
-  state: PublicState;
+  state?: PublicState;
+  draft?: PublicDraft;
+}
+
+export interface DraftStateMessage {
+  type: "draft-state";
+  draft: PublicDraft;
 }
 
 export interface StateMessage {
@@ -64,6 +96,7 @@ export interface StateMessage {
   notice?: string;
   lastMove?: MoveExecution;
   lastPickup?: PickupExecution;
+  lastDrop?: DropExecution;
   lastAction?: ActionExecution;
 }
 
@@ -79,6 +112,7 @@ export interface OpponentLeftMessage {
 export type ServerMessage =
   | HostedMessage
   | JoinedMessage
+  | DraftStateMessage
   | StateMessage
   | ErrorMessage
   | OpponentLeftMessage;

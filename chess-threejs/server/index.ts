@@ -1,17 +1,26 @@
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { actionNotice, Game } from "../src/core/gameState";
+import { Draft, normalizeDraftConfig } from "../src/core/draft";
+import { defaultBoardForFormat, type ArmyFormat } from "../src/core/format";
+import { boardSupportsFormat } from "../src/core/board";
 import { armyByKind } from "../src/core/pieces";
-import type { ClientMessage, ServerMessage } from "../src/net/protocol";
+import type { BoardKind } from "../src/core/types";
+import type { PlayerStyle } from "../src/core/colors";
+import type { ClientMessage, PublicDraft, ServerMessage } from "../src/net/protocol";
 
 const PORT = 8787;
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 interface Room {
   code: string;
-  game: Game;
+  game: Game | null;
+  draft: Draft | null;
   host: WebSocket;
   guest: WebSocket | null;
+  board: BoardKind;
+  colors?: [PlayerStyle, PlayerStyle];
+  autoPickupItems: boolean;
 }
 
 const rooms = new Map<string, Room>();
@@ -31,7 +40,36 @@ function makeCode(): string {
 }
 
 function broadcast(room: Room, notice?: string): void {
+  if (!room.game) return;
   const message: ServerMessage = { type: "state", state: room.game.toPublic(), notice };
+  send(room.host, message);
+  if (room.guest) send(room.guest, message);
+}
+
+function broadcastDraft(room: Room): void {
+  if (!room.draft) return;
+  const message: ServerMessage = { type: "draft-state", draft: room.draft.toPublic() };
+  send(room.host, message);
+  if (room.guest) send(room.guest, message);
+}
+
+function resolveFormat(raw: string | undefined): ArmyFormat {
+  return raw === "normal" ? "normal" : "mini";
+}
+
+function resolveBoard(board: BoardKind | undefined, format: ArmyFormat): BoardKind {
+  if (board && boardSupportsFormat(board, format)) return board;
+  return defaultBoardForFormat(format);
+}
+
+function startMatchFromDraft(room: Room): void {
+  const draft = room.draft;
+  if (!draft || draft.phase !== "done") return;
+  room.game = new Game(draft.toArmy(0), room.colors, room.board, draft.toArmy(1), {
+    autoPickupItems: room.autoPickupItems,
+  });
+  room.draft = null;
+  const message: ServerMessage = { type: "state", state: room.game.toPublic(), notice: "Draft complete" };
   send(room.host, message);
   if (room.guest) send(room.guest, message);
 }
@@ -75,16 +113,43 @@ wss.on("connection", (ws) => {
         send(ws, { type: "error", message: "Already in a room" });
         return;
       }
+      const code = makeCode();
+      if (msg.matchMode === "draft") {
+        const format = resolveFormat(msg.format);
+        const config = normalizeDraftConfig(msg.draft, format);
+        const draft = new Draft(config, true);
+        const room: Room = {
+          code,
+          game: null,
+          draft,
+          host: ws,
+          guest: null,
+          board: resolveBoard(msg.board, format),
+          colors: msg.colors,
+          autoPickupItems: msg.autoPickupItems === true,
+        };
+        rooms.set(code, room);
+        sockets.set(ws, { room, playerId: 0 });
+        send(ws, { type: "hosted", code, playerId: 0, draft: draft.toPublic() });
+        return;
+      }
       const army = msg.roster ?? armyByKind(msg.army);
+      const game = new Game(army, msg.colors, msg.board ?? "bizarre", msg.opponentRoster, {
+        autoPickupItems: msg.autoPickupItems === true,
+      });
       const room: Room = {
-        code: makeCode(),
-        game: new Game(army, msg.colors, msg.board ?? "bizarre", msg.opponentRoster),
+        code,
+        game,
+        draft: null,
         host: ws,
         guest: null,
+        board: msg.board ?? "bizarre",
+        colors: msg.colors,
+        autoPickupItems: msg.autoPickupItems === true,
       };
-      rooms.set(room.code, room);
+      rooms.set(code, room);
       sockets.set(ws, { room, playerId: 0 });
-      send(ws, { type: "hosted", code: room.code, playerId: 0, state: room.game.toPublic() });
+      send(ws, { type: "hosted", code, playerId: 0, state: game.toPublic() });
       return;
     }
 
@@ -101,6 +166,21 @@ wss.on("connection", (ws) => {
       }
       room.guest = ws;
       sockets.set(ws, { room, playerId: 1 });
+      if (room.draft) {
+        const started = room.draft.beginFromWaiting();
+        if (!started.ok) {
+          send(ws, { type: "error", message: started.error ?? "Draft already started" });
+          return;
+        }
+        const draft: PublicDraft = room.draft.toPublic();
+        send(ws, { type: "joined", code: room.code, playerId: 1, draft });
+        send(room.host, { type: "draft-state", draft });
+        return;
+      }
+      if (!room.game) {
+        send(ws, { type: "error", message: "Room is not ready" });
+        return;
+      }
       if (msg.roster) room.game.replaceArmy(1, msg.roster);
       send(ws, { type: "joined", code: room.code, playerId: 1, state: room.game.toPublic() });
       send(room.host, { type: "state", state: room.game.toPublic(), notice: "Opponent joined" });
@@ -110,6 +190,30 @@ wss.on("connection", (ws) => {
     const seat = sockets.get(ws);
     if (!seat) {
       send(ws, { type: "error", message: "Join or host a room first" });
+      return;
+    }
+
+    if (msg.type === "draft-action") {
+      const draft = seat.room.draft;
+      if (!draft) {
+        send(ws, { type: "error", message: "No draft in this room" });
+        return;
+      }
+      const result = msg.action === "ban" ? draft.tryBan(seat.playerId, msg.piece) : draft.tryPick(seat.playerId, msg.piece);
+      if (!result.ok) {
+        send(ws, { type: "error", message: result.error ?? "Invalid draft action" });
+        return;
+      }
+      if (draft.phase === "done") {
+        startMatchFromDraft(seat.room);
+        return;
+      }
+      broadcastDraft(seat.room);
+      return;
+    }
+
+    if (!seat.room.game) {
+      send(ws, { type: "error", message: "Match has not started" });
       return;
     }
 
@@ -141,6 +245,23 @@ wss.on("connection", (ws) => {
         state: seat.room.game.toPublic(),
         notice: "Picked up Force Field Generator",
         lastPickup: result,
+      };
+      send(seat.room.host, message);
+      if (seat.room.guest) send(seat.room.guest, message);
+      return;
+    }
+
+    if (msg.type === "drop") {
+      const result = seat.room.game.tryDrop(msg.unitId, seat.playerId);
+      if (!result.success) {
+        send(ws, { type: "error", message: result.error ?? "Cannot drop" });
+        return;
+      }
+      const message: ServerMessage = {
+        type: "state",
+        state: seat.room.game.toPublic(),
+        notice: "Dropped item",
+        lastDrop: result,
       };
       send(seat.room.host, message);
       if (seat.room.guest) send(seat.room.guest, message);

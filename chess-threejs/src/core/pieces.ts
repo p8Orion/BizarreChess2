@@ -1,3 +1,5 @@
+import type { ArmyFormat } from "./format";
+import { queenHurdleCapture, queenHurdleMove } from "./hop";
 import { MovementType, UnitDefinition, leaper, pattern } from "./types";
 
 function def(
@@ -36,6 +38,10 @@ export const PIECES: Record<string, UnitDefinition> = {
       pattern({ type: MovementType.Orthogonal, maxDistance: -1 }),
       pattern({ type: MovementType.Diagonal, maxDistance: -1 }),
     ],
+  }),
+  Grasshopper: def("Grasshopper", {
+    model: "placeholder",
+    patterns: [...queenHurdleMove(), ...queenHurdleCapture()],
   }),
   Rook: def("Rook", {
     patterns: [pattern({ type: MovementType.Orthogonal, maxDistance: -1 })],
@@ -115,6 +121,7 @@ export type ArmyKind = "bizarre" | "classic" | "mini-classic" | "mini-court" | "
 export interface ArmyDef {
   id: ArmyKind;
   label: string;
+  format: ArmyFormat;
   slots: Slot[];
   /** Extra pawns on empty front files (wide boards). Mini armies leave the flanks empty. */
   fillEmptyFront: boolean;
@@ -137,7 +144,7 @@ export const BIZARRE_ARMY: Slot[] = [
   { piece: "Cannon", x: 0, row: "back" },
   { piece: "Camel", x: 1, row: "back" },
   { piece: "Crossbowman", x: 2, row: "back" },
-  { piece: "Queen", x: 3, row: "back" },
+  { piece: "Grasshopper", x: 3, row: "back" },
   { piece: "King", x: 4, row: "back" },
   { piece: "Bishop", x: 5, row: "back" },
   { piece: "Knight", x: 6, row: "back" },
@@ -160,15 +167,16 @@ function miniArmy(...back: string[]): Slot[] {
 }
 
 export const ARMIES: ArmyDef[] = [
-  { id: "bizarre", label: "Bizarre — full custom", slots: BIZARRE_ARMY, fillEmptyFront: true },
-  { id: "classic", label: "Classic — 8 + 8", slots: CLASSIC_ARMY, fillEmptyFront: true },
-  { id: "mini-classic", label: "Mini Classic — R N B K + 4 pawns", slots: miniArmy("Rook", "Knight", "Bishop", "King"), fillEmptyFront: false },
-  { id: "mini-court", label: "Mini Court — B Q K N + 4 pawns", slots: miniArmy("Bishop", "Queen", "King", "Knight"), fillEmptyFront: false },
+  { id: "bizarre", label: "Bizarre — full custom", format: "normal", slots: BIZARRE_ARMY, fillEmptyFront: true },
+  { id: "classic", label: "Classic — 8 + 8", format: "normal", slots: CLASSIC_ARMY, fillEmptyFront: true },
+  { id: "mini-classic", label: "Mini Classic — R N B K + 4 pawns", format: "mini", slots: miniArmy("Rook", "Knight", "Bishop", "King"), fillEmptyFront: false },
+  { id: "mini-court", label: "Mini Court — B Q K N + 4 pawns", format: "mini", slots: miniArmy("Bishop", "Queen", "King", "Knight"), fillEmptyFront: false },
   {
     id: "mini-bizarre",
-    label: "Mini Bizarre — Cannon Crossbow King Camel + Lancer Defender Bomber",
+    label: "Mini Bizarre — Cannon Crossbow King Grasshopper + Lancer Defender Bomber",
+    format: "mini",
     slots: [
-      ...miniArmy("Cannon", "Crossbowman", "King", "Camel").filter((slot) => slot.row === "back"),
+      ...miniArmy("Cannon", "Crossbowman", "King", "Grasshopper").filter((slot) => slot.row === "back"),
       { piece: "Lancer", x: 0, row: "front" },
       { piece: "Defender", x: 1, row: "front" },
       { piece: "Bomber", x: 2, row: "front" },
@@ -176,7 +184,7 @@ export const ARMIES: ArmyDef[] = [
     ],
     fillEmptyFront: false,
   },
-  { id: "mini-leap", label: "Mini Leap — Knight Camel King Bishop + 4 pawns", slots: miniArmy("Knight", "Camel", "King", "Bishop"), fillEmptyFront: false },
+  { id: "mini-leap", label: "Mini Leap — Knight Camel King Bishop + 4 pawns", format: "mini", slots: miniArmy("Knight", "Camel", "King", "Bishop"), fillEmptyFront: false },
 ];
 
 export function armyByKind(id?: string): ArmyDef {

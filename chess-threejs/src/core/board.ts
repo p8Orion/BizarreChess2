@@ -1,5 +1,6 @@
 import { hexCellExists, hexEdges, hexShade, hexSpawnZones, hexWorldZ } from "./hex";
 import { itemHomeTiles } from "./items";
+import type { ArmyFormat } from "./format";
 import {
   AXIS_D1,
   AXIS_D2,
@@ -447,19 +448,27 @@ export function createBoardWithHoles(
   return finishBoard("holes_8x8", "8×8 Board with Holes", width, height, nodes);
 }
 
-export const BOARD_OPTIONS: { id: BoardKind; label: string }[] = [
-  { id: "lane11", label: "Lane — 6×11 wide center" },
-  { id: "lane12-terrain", label: "Lane — 6×12 pits & mountains" },
-  { id: "lane10-terrain", label: "Lane — 6×10 pits & mountains" },
-  { id: "bizarre", label: "Bizarre — 8×8 pits & walls" },
-  { id: "classic", label: "Classic — 8×8 open" },
-  { id: "lane10", label: "Lane — 6×10 mini" },
-  { id: "lane", label: "Lane — 6×12 mini" },
-  { id: "hexa", label: "Hexa — brick hex (3 colors)" },
-  { id: "grand", label: "Grand — 10×10" },
-  { id: "capablanca", label: "Capablanca — 10×8" },
-  { id: "holes", label: "Holes — 8×8 irregular" },
+export const BOARD_OPTIONS: { id: BoardKind; label: string; formats: ArmyFormat[] }[] = [
+  { id: "lane11", label: "Lane — 6×11 wide center", formats: ["mini"] },
+  { id: "lane12-terrain", label: "Lane — 6×12 pits & mountains", formats: ["mini"] },
+  { id: "lane10-terrain", label: "Lane — 6×10 pits & mountains", formats: ["mini"] },
+  { id: "bizarre", label: "Bizarre — 8×8 pits & walls", formats: ["normal", "mini"] },
+  { id: "classic", label: "Classic — 8×8 open", formats: ["normal", "mini"] },
+  { id: "lane10", label: "Lane — 6×10 mini", formats: ["mini"] },
+  { id: "lane", label: "Lane — 6×12 mini", formats: ["mini"] },
+  { id: "hexa", label: "Hexa — brick hex (3 colors)", formats: ["normal", "mini"] },
+  { id: "grand", label: "Grand — 10×10", formats: ["normal"] },
+  { id: "capablanca", label: "Capablanca — 10×8", formats: ["normal"] },
+  { id: "holes", label: "Holes — 8×8 irregular", formats: ["normal", "mini"] },
 ];
+
+export function boardsForFormat(format: ArmyFormat): typeof BOARD_OPTIONS {
+  return BOARD_OPTIONS.filter((option) => option.formats.includes(format));
+}
+
+export function boardSupportsFormat(board: BoardKind, format: ArmyFormat): boolean {
+  return BOARD_OPTIONS.some((option) => option.id === board && option.formats.includes(format));
+}
 
 export function createBoardByKind(kind: BoardKind = "lane11", seed?: number): BoardDefinition {
   switch (kind) {

@@ -1,9 +1,31 @@
 import type { PlayerStyle } from "../core/colors";
+import type { DraftPickModeId, DraftUniq } from "../core/draft";
+import type { ArmyFormat, MatchMode } from "../core/format";
 import type { ArmyKind } from "../core/pieces";
-import type { ItemState } from "../core/types";
+import type { BoardKind, ItemState } from "../core/types";
 
 export const USER_STORE_KEY = "bizarre-chess.user.v1";
 export const USER_STORE_VERSION = 3 as const;
+
+export interface UserSettings {
+  autoPickupItems: boolean;
+  matchMode: MatchMode;
+  armyFormat: ArmyFormat;
+  board: BoardKind;
+  draftBanCount: number;
+  draftPickMode: DraftPickModeId;
+  draftUniqueness: DraftUniq;
+}
+
+export const DEFAULT_SETTINGS: UserSettings = {
+  autoPickupItems: false,
+  matchMode: "normal",
+  armyFormat: "mini",
+  board: "lane11",
+  draftBanCount: 1,
+  draftPickMode: "pieces-first",
+  draftUniqueness: "free",
+};
 
 export interface PersistedItem {
   kind: string;
@@ -48,4 +70,5 @@ export interface PersistedUser {
   pieces: PersistedPiece[];
   activeArmyId: string;
   guestArmyId: string;
+  settings: UserSettings;
 }

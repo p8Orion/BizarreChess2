@@ -9,6 +9,7 @@ import type { ActionExecution, MoveExecution } from "../core/gameState";
 import { hexCellExists, hexWorldZ, isStructuralGap } from "../core/hex";
 import { PIECES } from "../core/pieces";
 import { BoardLayout, ItemState, MoveTargets, NodeType, PublicState, UnitState } from "../core/types";
+import { createBoardFrameGeometry, tileWorldRect, type WorldRect } from "./boardFrame";
 import {
   bakeCheckerGround,
   createGroundGeometry,
@@ -58,6 +59,7 @@ const TARGET_HEIGHT: Record<string, number> = {
   Camel: KING_HEIGHT * 0.68,
   Cannon: KING_HEIGHT * 0.62,
   Crossbowman: KING_HEIGHT * 0.72,
+  Grasshopper: KING_HEIGHT * 0.88,
 };
 
 /** Screen-left for P1 (looking +Z) is +X, so file A (x=0) is mirrored. */
@@ -573,6 +575,8 @@ export class GameView {
       roughness: 0.92,
       metalness: 0.03,
     });
+    const occupied: WorldRect[] = [];
+    const abyssRects: WorldRect[] = [];
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
         const id = y * state.width + x;
@@ -580,7 +584,13 @@ export class GameView {
         const type = node?.currentType ?? NodeType.Normal;
         const at = tileCenter(x, y, layout, state.width);
         if (isStructuralGap(type, x, y, state.width, state.height, layout)) continue;
-        if (!node?.isActive || type === NodeType.Abyss || type === NodeType.Destroyed) continue;
+        if (!node?.isActive || type === NodeType.Destroyed) continue;
+        const rect = tileWorldRect(x, y, state.width, layout);
+        occupied.push(rect);
+        if (type === NodeType.Abyss) {
+          abyssRects.push(rect);
+          continue;
+        }
         const shade = state.shades?.[id] ?? (state.lights[id] ? 0 : 2);
         const palette = layout === "hex-offset" ? HEX_WOOD : WOOD_SHADES;
         const wood = palette[shade] ?? DARK_WOOD;
@@ -605,39 +615,36 @@ export class GameView {
       }
     }
     const w = state.width;
-    const z0 = layout === "hex-offset" ? -0.5 : 0;
-    const z1 = layout === "hex-offset" ? state.height - 0.5 : state.height;
-    const depth = z1 - z0;
-    const voidFloor = new THREE.Mesh(
-      new THREE.PlaneGeometry(w + 1.2, depth + 1.2),
-      new THREE.MeshBasicMaterial({ color: 0x050403 })
-    );
-    voidFloor.rotation.x = -Math.PI / 2;
-    voidFloor.position.set(w / 2, -THICKNESS - 0.08, (z0 + z1) / 2);
-    voidFloor.userData.ownGeometry = true;
-    this.boardRoot.add(voidFloor);
-    const frameMat = new THREE.MeshStandardMaterial({
-      color: 0x3a2616,
-      map: this.woodDark,
-      roughness: 0.78,
-    });
+    if (abyssRects.length) {
+      const voidMat = new THREE.MeshBasicMaterial({ color: 0x050403 });
+      for (const rect of abyssRects) {
+        const pad = new THREE.Mesh(new THREE.PlaneGeometry(rect.x1 - rect.x0, rect.z1 - rect.z0), voidMat);
+        pad.rotation.x = -Math.PI / 2;
+        pad.position.set((rect.x0 + rect.x1) / 2, -THICKNESS - 0.08, (rect.z0 + rect.z1) / 2);
+        pad.userData.ownGeometry = true;
+        this.boardRoot.add(pad);
+      }
+    }
     const frameT = 0.22;
     const frameH = THICKNESS + 0.1;
     const frameY = -THICKNESS / 2 - 0.03;
-    const north = new THREE.Mesh(new THREE.BoxGeometry(w + frameT * 2, frameH, frameT), frameMat);
-    north.position.set(w / 2, frameY, z0 - frameT / 2);
-    const south = new THREE.Mesh(new THREE.BoxGeometry(w + frameT * 2, frameH, frameT), frameMat);
-    south.position.set(w / 2, frameY, z1 + frameT / 2);
-    const west = new THREE.Mesh(new THREE.BoxGeometry(frameT, frameH, depth), frameMat);
-    west.position.set(-frameT / 2, frameY, (z0 + z1) / 2);
-    const east = new THREE.Mesh(new THREE.BoxGeometry(frameT, frameH, depth), frameMat);
-    east.position.set(w + frameT / 2, frameY, (z0 + z1) / 2);
-    north.userData.ownGeometry = true;
-    south.userData.ownGeometry = true;
-    west.userData.ownGeometry = true;
-    east.userData.ownGeometry = true;
-    this.boardRoot.add(north, south, west, east);
-    this.addCoordLabels(w, state.height, layout);
+    const frameGeo = createBoardFrameGeometry(occupied, frameT, frameH);
+    if (frameGeo) {
+      const frame = new THREE.Mesh(
+        frameGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0x3a2616,
+          map: this.woodDark,
+          roughness: 0.78,
+        })
+      );
+      frame.position.y = frameY - frameH / 2;
+      frame.castShadow = true;
+      frame.receiveShadow = true;
+      frame.userData.ownGeometry = true;
+      this.boardRoot.add(frame);
+    }
+    this.addCoordLabels(w, state.height, layout, occupied);
     this.scene.add(this.boardRoot);
     this.applyAtmosphere(
       w,
@@ -648,7 +655,8 @@ export class GameView {
         w,
         state.height,
         state.nodes.map((n) => n.currentType)
-      )
+      ),
+      occupied
     );
   }
 
@@ -665,13 +673,21 @@ export class GameView {
     this.groundMap = null;
   }
 
-  private applyAtmosphere(width: number, height: number, layout: BoardLayout, cutBoard: boolean, seed?: number): void {
+  private applyAtmosphere(
+    width: number,
+    height: number,
+    layout: BoardLayout,
+    cutBoard: boolean,
+    seed?: number,
+    occupied?: WorldRect[]
+  ): void {
     const baked = bakeCheckerGround({
       width,
       height,
       layout,
       wood: this.woodLight,
       cutBoard,
+      occupied,
     });
     this.groundMap?.dispose();
     this.groundMap = baked.map;
@@ -710,17 +726,30 @@ export class GameView {
     this.camera.updateProjectionMatrix();
   }
 
-  private addCoordLabels(width: number, height: number, layout: BoardLayout = "square"): void {
+  private addCoordLabels(width: number, height: number, layout: BoardLayout, occupied: WorldRect[]): void {
     const files = "abcdefghij";
-    const z0 = layout === "hex-offset" ? -0.5 : 0;
+    const byFile = new Map<number, { minZ: number }>();
+    const byRank = new Map<number, { maxX: number; z: number }>();
+    for (const rect of occupied) {
+      const x = width - 1 - rect.x0;
+      const y = layout === "hex-offset" ? Math.round(rect.z0 + (x % 2 === 1 ? 0.5 : 0)) : rect.z0;
+      const file = byFile.get(x);
+      if (!file || rect.z0 < file.minZ) byFile.set(x, { minZ: rect.z0 });
+      const rank = byRank.get(y);
+      if (!rank || rect.x1 > rank.maxX) byRank.set(y, { maxX: rect.x1, z: (rect.z0 + rect.z1) / 2 });
+    }
     for (let x = 0; x < width; x++) {
+      const file = byFile.get(x);
+      if (!file) continue;
       const mark = this.coordSprite(files[x] ?? String(x + 1));
-      mark.position.set(fileWorldX(x, width) + 0.5, 0.16, z0 - 0.38);
+      mark.position.set(fileWorldX(x, width) + 0.5, 0.16, file.minZ - 0.38);
       this.boardRoot.add(mark);
     }
     for (let y = 0; y < height; y++) {
+      const rank = byRank.get(y);
+      if (!rank) continue;
       const mark = this.coordSprite(String(y + 1));
-      mark.position.set(width + 0.38, 0.16, (layout === "hex-offset" ? hexWorldZ(0, y) : y) + 0.5);
+      mark.position.set(rank.maxX + 0.38, 0.16, rank.z);
       this.boardRoot.add(mark);
     }
   }
@@ -1007,6 +1036,7 @@ export class GameView {
   private async buildVisual(unit: UnitState): Promise<{ visual: THREE.Group; gltf?: GLTF }> {
     const def = PIECES[unit.definitionId];
     const model = def?.model ?? unit.definitionId.toLowerCase();
+    if (model === "placeholder") return { visual: this.fallback(unit) };
     try {
       if (unit.definitionId === "Lancer") await this.ensurePawnScale();
       const gltf = await this.getModel(model);
@@ -1106,10 +1136,10 @@ export class GameView {
           cloned.color.copy(secondary);
           cloned.map = null;
         } else if (role === "secondary") {
-          cloned.color.copy(base.color).lerp(primary, 0.4);
+          cloned.color.copy(base.color).lerp(primary, 0.7);
           cloned.map = null;
         } else if (cloned.color) {
-          const field = base.color.clone().lerp(primary, 0.5);
+          const field = base.color.clone().lerp(primary, 0.7);
           cloned.color.set(0xffffff);
           cloned.map = this.patternMap(style, field, tiles);
         }
@@ -1177,10 +1207,18 @@ export class GameView {
     const color = new THREE.Color(this.styleOf(unit.ownerId).primary);
     const height = TARGET_HEIGHT[unit.definitionId] ?? 1.2;
     const group = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 0.26, height * 0.7, 16),
-      new THREE.MeshStandardMaterial({ color })
-    );
+    const mat = new THREE.MeshStandardMaterial({ color });
+    if (PIECES[unit.definitionId]?.model === "placeholder") {
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.28, height * 0.72, 12), mat);
+      body.position.y = height * 0.36;
+      body.castShadow = true;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), mat);
+      head.position.y = height * 0.78;
+      head.castShadow = true;
+      group.add(body, head);
+      return group;
+    }
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, height * 0.7, 16), mat);
     body.position.y = height * 0.35;
     body.castShadow = true;
     group.add(body);

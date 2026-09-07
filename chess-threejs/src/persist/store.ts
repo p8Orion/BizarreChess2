@@ -1,9 +1,13 @@
 import { DEFAULT_STYLE_P1, DEFAULT_STYLE_P2, normalizeStyle, type PlayerStyle } from "../core/colors";
+import { BOARD_OPTIONS, boardSupportsFormat } from "../core/board";
+import { DRAFT_PICK_MODES, DRAFT_UNIQ_OPTIONS, clampBanCount, type DraftPickModeId, type DraftUniq } from "../core/draft";
+import { defaultBoardForFormat, formatOfArmyKind, type ArmyFormat, type MatchMode } from "../core/format";
 import { rehydrateItem } from "../core/items";
 import { ARMIES, armyByKind, catalogPieces, type ArmyKind } from "../core/pieces";
 import type { ItemState, UnitState } from "../core/types";
 import type { SpawnSlot } from "../core/gameState";
 import {
+  DEFAULT_SETTINGS,
   USER_STORE_KEY,
   USER_STORE_VERSION,
   type PersistedArmy,
@@ -11,6 +15,7 @@ import {
   type PersistedPiece,
   type PersistedSlot,
   type PersistedUser,
+  type UserSettings,
 } from "./types";
 
 function newId(prefix: string): string {
@@ -76,7 +81,12 @@ function matchesCatalog(army: PersistedArmy): boolean {
   return def.slots.every((slot) => have.has(slotKey(slot)));
 }
 
-const STALE_DEFAULT_NAMES = new Set(["Mini Bizarre — Cannon Crossbow King Camel + 4 pawns", "Mini Bizarre"]);
+const STALE_DEFAULT_NAMES = new Set([
+  "Mini Bizarre — Cannon Crossbow King Camel + 4 pawns",
+  "Mini Bizarre — Cannon Crossbow King Camel + Lancer Defender Bomber",
+  "Mini Bizarre — Cannon Crossbow King Saltamontes + Lancer Defender Bomber",
+  "Mini Bizarre",
+]);
 
 function looksLikeCatalogDefault(army: PersistedArmy): boolean {
   if (army.isDefault || army.id.startsWith("default:")) return true;
@@ -118,6 +128,7 @@ function seedUser(): PersistedUser {
     pieces: [],
     activeArmyId,
     guestArmyId: activeArmyId,
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 
@@ -142,6 +153,32 @@ function normalizeUser(raw: unknown): PersistedUser {
     pieces,
     activeArmyId,
     guestArmyId,
+    settings: normalizeSettings(o.settings),
+  };
+}
+
+function normalizeSettings(raw: unknown): UserSettings {
+  const o = raw && typeof raw === "object" ? (raw as Partial<UserSettings>) : {};
+  const matchMode: MatchMode = o.matchMode === "draft" ? "draft" : "normal";
+  const armyFormat: ArmyFormat = o.armyFormat === "normal" ? "normal" : "mini";
+  const boardId = typeof o.board === "string" ? o.board : "";
+  const board = BOARD_OPTIONS.some((option) => option.id === boardId) && boardSupportsFormat(boardId as UserSettings["board"], armyFormat)
+    ? (boardId as UserSettings["board"])
+    : defaultBoardForFormat(armyFormat);
+  const pickMode: DraftPickModeId = DRAFT_PICK_MODES.some((mode) => mode.id === o.draftPickMode)
+    ? (o.draftPickMode as DraftPickModeId)
+    : "pieces-first";
+  const uniqueness: DraftUniq = DRAFT_UNIQ_OPTIONS.some((option) => option.id === o.draftUniqueness)
+    ? (o.draftUniqueness as DraftUniq)
+    : "free";
+  return {
+    autoPickupItems: o.autoPickupItems === true,
+    matchMode,
+    armyFormat,
+    board,
+    draftBanCount: clampBanCount(o.draftBanCount ?? 1),
+    draftPickMode: pickMode,
+    draftUniqueness: uniqueness,
   };
 }
 
@@ -274,6 +311,12 @@ export function setUserStyles(style: PlayerStyle, guestStyle: PlayerStyle): Pers
   });
 }
 
+export function setUserSettings(patch: Partial<UserSettings>): PersistedUser {
+  return updateUser((user) => {
+    user.settings = normalizeSettings({ ...user.settings, ...patch });
+  });
+}
+
 export function duplicateArmy(armyId: string): PersistedUser {
   return updateUser((user) => {
     const src = user.armies.find((a) => a.id === armyId);
@@ -330,9 +373,14 @@ function findSlot(slots: PersistedSlot[], unit: UnitState): PersistedSlot | unde
   );
 }
 
-export function armyOptions(user: PersistedUser, onlyDefaults = false): { id: string; label: string; isDefault: boolean }[] {
+export function armyOptions(
+  user: PersistedUser,
+  onlyDefaults = false,
+  format?: ArmyFormat
+): { id: string; label: string; isDefault: boolean }[] {
   return user.armies
     .filter((army) => !onlyDefaults || army.isDefault)
+    .filter((army) => !format || formatOfArmyKind(army.basedOn) === format)
     .map((army) => ({
       id: army.id,
       isDefault: army.isDefault,
