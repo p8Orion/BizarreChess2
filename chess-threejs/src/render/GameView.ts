@@ -1764,17 +1764,8 @@ export class GameView {
     const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), facing);
     if (right.lengthSq() < 1e-4) right.set(1, 0, 0);
     right.normalize();
-    const up = new THREE.Vector3(0, 1, 0);
-    const along = facing.clone().negate();
 
-    const side = Math.random() < 0.5 ? -1 : 1;
     const tipDeg = 78 + Math.random() * 16;
-    const sweepDeg = 16 + Math.random() * 22;
-    const spinDeg = 50 + Math.random() * 70;
-    const rollDur = 0.48 + Math.random() * 1.15;
-    const easePow = 1.15 + Math.random() * 2.1;
-    const easeIn = Math.random() < 0.5;
-    const spinRate = 0.65 + Math.random() * 0.85;
     const afterTip = new THREE.Quaternion().setFromAxisAngle(right, THREE.MathUtils.degToRad(-tipDeg)).multiply(startRot);
     const planted = start.clone();
     planted.y = start.y + 0.02;
@@ -1783,13 +1774,6 @@ export class GameView {
       const e = t * t;
       actor.group.position.lerpVectors(start, planted, e);
       actor.group.quaternion.slerpQuaternions(startRot, afterTip, e);
-    });
-    await this.tween(rollDur, (t) => {
-      const eased = easeIn ? t ** easePow : 1 - (1 - t) ** easePow;
-      const yaw = new THREE.Quaternion().setFromAxisAngle(up, THREE.MathUtils.degToRad(sweepDeg) * side * eased);
-      const spin = new THREE.Quaternion().setFromAxisAngle(along, THREE.MathUtils.degToRad(spinDeg) * side * Math.min(1, eased * spinRate));
-      actor.group.position.copy(planted);
-      actor.group.quaternion.copy(yaw).multiply(spin).multiply(afterTip);
     });
     await this.tween(0.42, (t) => {
       actor.group.traverse((child) => {
