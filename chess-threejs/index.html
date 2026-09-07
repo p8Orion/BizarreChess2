@@ -14,8 +14,8 @@
             <canvas id="hud-portrait" width="176" height="176"></canvas>
           </div>
           <div class="hud-identity">
-            <div id="hud-name">Select a piece</div>
-            <div id="hud-move">Tap a piece to see how it moves.</div>
+            <div id="hud-name" data-i18n="hud.selectPiece">Select a piece</div>
+            <div id="hud-move" data-i18n="hud.selectHint">Hover a piece or item to inspect. Select yours to move.</div>
             <div class="hud-unit-actions" id="hud-selected-actions"></div>
           </div>
         </div>
@@ -33,130 +33,170 @@
       <div class="hud-main">
         <div class="hud-meta">
           <div id="hud-turn">Turn 1</div>
+          <div id="hud-clocks" hidden>
+            <div class="clock" data-player="0">
+              <span class="clock-name">P1</span>
+              <span class="clock-time" id="clock-p1">5:00</span>
+            </div>
+            <div class="clock" data-player="1">
+              <span class="clock-name">P2</span>
+              <span class="clock-time" id="clock-p2">5:00</span>
+            </div>
+          </div>
           <div id="net-info"></div>
-          <button id="btn-resign" class="ghost">Resign</button>
+          <button id="btn-resign" class="ghost" data-i18n="hud.resign">Resign</button>
         </div>
         <div id="hud-actions"></div>
         <div id="hud-notice" hidden></div>
       </div>
     </header>
 
-    <div id="menu-card">
+    <div id="menu-card" class="is-offline">
       <div class="menu-head">
         <div id="title">Bizarre Chess</div>
-        <button id="btn-settings" class="ghost" type="button">Settings</button>
+        <div class="menu-head-actions">
+          <div data-lang-switch></div>
+          <button id="btn-settings" class="ghost" type="button" data-i18n="menu.settings">Settings</button>
+        </div>
       </div>
       <div id="settings-panel" hidden>
         <label class="setting">
           <input id="setting-auto-pickup" type="checkbox" />
           <span>
-            <strong>Agarrar los objetos automáticamente</strong>
-            <em>Al aterrizar sobre un objeto, se recoge en el mismo turno.</em>
+            <strong data-i18n="menu.autoPickup">Agarrar los objetos automáticamente</strong>
+            <em data-i18n="menu.autoPickupHint">Al aterrizar sobre un objeto, se recoge en el mismo turno.</em>
           </span>
         </label>
       </div>
-      <div id="menu-status">Choose army, board, colors and pattern, then play offline or host a room.</div>
+      <div class="choice-row" id="play-net" role="radiogroup" data-i18n-aria="menu.playNet">
+        <button type="button" class="choice is-on" data-net="offline" data-i18n="menu.offline">Offline</button>
+        <button type="button" class="choice" data-net="online" data-i18n="menu.online">Online</button>
+      </div>
+      <div id="menu-status" hidden></div>
       <div id="menu">
+        <section class="menu-panel" id="online-panel">
+          <div class="row">
+            <input id="join-code" data-i18n-placeholder="menu.code" placeholder="Code" maxlength="6" />
+            <button id="btn-join" data-i18n="menu.join">Join</button>
+          </div>
+          <button id="btn-copy-invite" class="ghost" type="button" data-i18n="menu.copyInvite">Copy invite</button>
+          <div class="sep" data-i18n="menu.myGames">My games</div>
+          <div id="my-games-list"></div>
+        </section>
         <section class="menu-panel" id="army-panel">
-          <div class="sep">Army</div>
+          <div class="sep" data-i18n="menu.army">Army</div>
           <div id="army-rosters">
             <label class="army">
-              P1 army
+              <span data-i18n="menu.p1Army">P1 army</span>
               <select id="army-kind"></select>
             </label>
             <label class="army">
-              P2 army
+              <span data-i18n="menu.p2Army">P2 army</span>
               <select id="army-p2"></select>
             </label>
             <div class="army-actions">
-              <button id="btn-copy-army" class="ghost" type="button">Copy army</button>
-              <button id="btn-army-editor" class="ghost" type="button">Edit army</button>
+              <button id="btn-copy-army" class="ghost" type="button" data-i18n="menu.copyArmy">Copy army</button>
+              <button id="btn-army-editor" class="ghost" type="button" data-i18n="menu.editArmy">Edit army</button>
             </div>
           </div>
           <div class="colors">
             <div class="player-style">
               <span>P1</span>
-              <label title="Primary"><input id="color-p1" type="color" value="#f2ebd9" /></label>
-              <label title="Secondary"><input id="color-p1-sec" type="color" value="#c4a15a" /></label>
-              <select id="pattern-p1" aria-label="P1 pattern"></select>
+              <label data-i18n-title="menu.primary" title="Primary"><input id="color-p1" type="color" value="#f2ebd9" /></label>
+              <label data-i18n-title="menu.secondary" title="Secondary"><input id="color-p1-sec" type="color" value="#c4a15a" /></label>
+              <select id="pattern-p1" data-i18n-aria="menu.p1Pattern"></select>
             </div>
             <div class="player-style">
               <span>P2</span>
-              <label title="Primary"><input id="color-p2" type="color" value="#33261f" /></label>
-              <label title="Secondary"><input id="color-p2-sec" type="color" value="#8a5a2b" /></label>
-              <select id="pattern-p2" aria-label="P2 pattern"></select>
+              <label data-i18n-title="menu.primary" title="Primary"><input id="color-p2" type="color" value="#33261f" /></label>
+              <label data-i18n-title="menu.secondary" title="Secondary"><input id="color-p2-sec" type="color" value="#8a5a2b" /></label>
+              <select id="pattern-p2" data-i18n-aria="menu.p2Pattern"></select>
             </div>
           </div>
         </section>
         <section class="menu-panel" id="mode-panel">
-          <div class="sep">Modo de juego</div>
-          <div class="choice-row" id="match-mode" role="radiogroup" aria-label="Match mode">
-            <button type="button" class="choice is-on" data-mode="normal">Normal</button>
-            <button type="button" class="choice" data-mode="draft">Draft</button>
+          <div class="sep" data-i18n="menu.matchMode">Modo de juego</div>
+          <div class="choice-row" id="match-mode" role="radiogroup" data-i18n-aria="menu.matchMode">
+            <button type="button" class="choice is-on" data-mode="normal" data-i18n="menu.normal">Normal</button>
+            <button type="button" class="choice" data-mode="draft" data-i18n="menu.draft">Draft</button>
           </div>
-          <div class="choice-row" id="army-format" role="radiogroup" aria-label="Army format">
-            <button type="button" class="choice" data-format="normal">Normal</button>
-            <button type="button" class="choice is-on" data-format="mini">Mini</button>
+          <div class="choice-row" id="army-format" role="radiogroup" data-i18n-aria="menu.army">
+            <button type="button" class="choice" data-format="normal" data-i18n="menu.normal">Normal</button>
+            <button type="button" class="choice" data-format="midi" data-i18n="menu.midi">Midi</button>
+            <button type="button" class="choice is-on" data-format="mini" data-i18n="menu.mini">Mini</button>
           </div>
           <div id="draft-options" hidden>
             <label class="draft-bans-label">
-              Bans
+              <span data-i18n="menu.bans">Bans</span>
               <input id="draft-ban-count" type="number" min="0" max="4" value="1" />
             </label>
             <label class="draft-uniq-label">
-              Repeats
+              <span data-i18n="menu.repeats">Repeats</span>
               <select id="draft-uniq">
-                <option value="unique">Unique</option>
-                <option value="unique-per-player">Unique per player</option>
-                <option value="free" selected>No restrictions</option>
+                <option value="unique" data-i18n="menu.uniq.unique">Unique</option>
+                <option value="unique-pieces" data-i18n="menu.uniq.pieces">Unique pieces</option>
+                <option value="unique-per-player" data-i18n="menu.uniq.perPlayer">Unique per player</option>
+                <option value="free" selected data-i18n="menu.uniq.free">No restrictions</option>
               </select>
             </label>
-            <div class="choice-row" id="draft-pick-mode" role="radiogroup" aria-label="Draft pick order"></div>
+            <div class="choice-row" id="draft-pick-mode" role="radiogroup" data-i18n-aria="menu.draftPickOrder"></div>
           </div>
           <label class="board">
-            Mapa
+            <span data-i18n="menu.map">Mapa</span>
             <select id="board-kind"></select>
           </label>
           <label class="scatter">
-            Cantidad de items
+            <span data-i18n="menu.itemAmount">Cantidad de items</span>
             <input id="item-amount" type="range" min="0" max="40" step="5" />
             <span id="item-amount-val">5%</span>
           </label>
           <label class="scatter">
-            Cantidad de obstáculos
+            <span data-i18n="menu.obstacleAmount">Cantidad de obstáculos</span>
             <input id="obstacle-amount" type="range" min="0" max="40" step="5" />
             <span id="obstacle-amount-val">5%</span>
           </label>
           <label class="setting scatter-flag">
             <input id="obstacle-symmetric" type="checkbox" checked />
-            <span>Simétrico</span>
+            <span data-i18n="menu.symmetric">Simétrico</span>
           </label>
-        </section>
-        <section class="menu-panel" id="play-panel">
-          <button id="btn-offline">Play Offline</button>
-          <div class="sep">Online</div>
-          <button id="btn-host">Host</button>
-          <div class="row">
-            <input id="join-code" placeholder="Code" maxlength="6" />
-            <button id="btn-join">Join</button>
+          <div class="sep" data-i18n="menu.clock">Reloj</div>
+          <div class="choice-row" id="time-control" role="radiogroup" data-i18n-aria="menu.clock">
+            <button type="button" class="choice is-on" data-time="5+3" data-i18n-title="menu.time5" title="5 minutes + 3 seconds per move">5+3</button>
+            <button type="button" class="choice" data-time="24h" data-i18n-title="menu.time24" title="24 hours per move">24 h</button>
           </div>
         </section>
+        <button id="btn-play" type="button" data-i18n="menu.play">PLAY</button>
       </div>
     </div>
 
     <div id="draft-card" hidden>
       <div class="menu-head">
-        <div id="draft-title">Draft</div>
-        <button id="btn-draft-leave" class="ghost" type="button">Leave</button>
+        <div id="draft-title" data-i18n="draft.title">Draft</div>
+        <div class="menu-head-actions">
+          <div data-lang-switch></div>
+          <button id="btn-draft-leave" class="ghost" type="button" data-i18n="draft.leave">Leave</button>
+        </div>
       </div>
       <div id="draft-room"></div>
       <div id="draft-root"></div>
     </div>
 
+    <div id="lobby-card" hidden>
+      <div class="menu-head">
+        <div id="lobby-title" data-i18n="lobby.title">Loadout</div>
+        <div class="menu-head-actions">
+          <div data-lang-switch></div>
+          <button id="btn-lobby-leave" class="ghost" type="button" data-i18n="lobby.leave">Leave</button>
+        </div>
+      </div>
+      <div id="lobby-room"></div>
+      <div id="lobby-root"></div>
+    </div>
+
     <aside id="army-editor-window" hidden>
       <div class="editor-window-bar">
-        <strong id="army-editor-title">Army</strong>
-        <button id="btn-close-army-editor" class="ghost" type="button">Close</button>
+        <strong id="army-editor-title" data-i18n="menu.army">Army</strong>
+        <button id="btn-close-army-editor" class="ghost" type="button" data-i18n="editor.close">Close</button>
       </div>
       <section id="army-editor"></section>
     </aside>

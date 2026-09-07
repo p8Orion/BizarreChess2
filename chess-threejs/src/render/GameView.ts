@@ -195,6 +195,7 @@ export class GameView {
   private ground: THREE.Mesh | null = null;
   private groundMap: THREE.CanvasTexture | null = null;
   private fogTint: THREE.Color | null = null;
+  private readonly keyLight: THREE.DirectionalLight;
   private readonly rockSources: THREE.Group[] = [];
   private state: PublicState | null = null;
   private colors: [PlayerStyle, PlayerStyle] = [DEFAULT_STYLE_P1, DEFAULT_STYLE_P2];
@@ -215,7 +216,7 @@ export class GameView {
     this.scene.background = new THREE.Color(0x5c4a38);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 48);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
     this.renderer.shadowMap.enabled = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.controls = new OrbitControls(this.camera, canvas);
@@ -224,11 +225,13 @@ export class GameView {
     this.controls.minDistance = 6;
     this.controls.maxDistance = 22;
     this.scene.add(new THREE.AmbientLight(0xffe8c8, 0.48));
-    const key = new THREE.DirectionalLight(0xfff1d6, 1.25);
-    key.position.set(7, 14, 5);
-    key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
-    this.scene.add(key);
+    this.keyLight = new THREE.DirectionalLight(0xfff1d6, 1.25);
+    this.keyLight.castShadow = true;
+    this.keyLight.shadow.mapSize.set(512, 512);
+    this.keyLight.shadow.bias = -0.001;
+    this.keyLight.shadow.normalBias = 0.04;
+    this.scene.add(this.keyLight);
+    this.scene.add(this.keyLight.target);
     this.scene.add(new THREE.HemisphereLight(0xfff4dc, 0x3a2a1c, 0.28));
     this.scene.add(this.boardRoot);
     this.scene.add(this.markers);
@@ -564,7 +567,6 @@ export class GameView {
     if (!src) return;
     const visual = src.clone(true);
     visual.traverse((child) => {
-      child.frustumCulled = false;
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
@@ -699,7 +701,7 @@ export class GameView {
         const mesh = new THREE.Mesh(this.tileGeometry(id), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat]);
         mesh.position.set(at.x, -THICKNESS / 2, at.z);
         mesh.rotation.y = ((id * 5) % 4) * (Math.PI / 2);
-        mesh.castShadow = true;
+        mesh.castShadow = false;
         mesh.receiveShadow = true;
         mesh.userData.ownGeometry = true;
         if (!impassable) mesh.userData.nodeId = id;
@@ -732,7 +734,7 @@ export class GameView {
           })
         );
         rail.position.y = -0.012;
-        rail.castShadow = true;
+        rail.castShadow = false;
         rail.receiveShadow = true;
         rail.userData.ownGeometry = true;
         this.boardRoot.add(rail);
@@ -752,7 +754,7 @@ export class GameView {
         })
       );
       frame.position.y = frameY - frameH / 2;
-      frame.castShadow = true;
+      frame.castShadow = false;
       frame.receiveShadow = true;
       frame.userData.ownGeometry = true;
       this.boardRoot.add(frame);
@@ -827,6 +829,7 @@ export class GameView {
       this.scene.add(this.ground);
     }
     this.ground.position.set(baked.cx, -0.002, baked.cz);
+    this.fitShadowRig(width, height, layout);
     if (!this.fogTint) {
       const rand = seed != null ? fogRandFromSeed(seed) : Math.random;
       this.fogTint = subtleFogTint(baked.mid, rand);
@@ -1026,7 +1029,6 @@ export class GameView {
     const visual = gltf.scene.clone(true);
     const dye = tint ? new THREE.Color(tint) : null;
     visual.traverse((child) => {
-      child.frustumCulled = false;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.castShadow = true;
@@ -1131,8 +1133,8 @@ export class GameView {
     return this.makeItemPrimitive(item);
   }
 
-  async createPieceVisual(unit: UnitState): Promise<THREE.Group> {
-    const built = await this.buildVisual(unit);
+  async createPieceVisual(unit: UnitState, style?: PlayerStyle): Promise<THREE.Group> {
+    const built = await this.buildVisual(unit, style);
     if (unit.heldItem) {
       const held = await this.makeHeldVisual(unit.heldItem, unit.definitionId);
       built.visual.add(held);
@@ -1152,7 +1154,7 @@ export class GameView {
     }
   }
 
-  private async buildVisual(unit: UnitState): Promise<{ visual: THREE.Group; gltf?: GLTF }> {
+  private async buildVisual(unit: UnitState, style?: PlayerStyle): Promise<{ visual: THREE.Group; gltf?: GLTF }> {
     const def = PIECES[unit.definitionId];
     const model = def?.model ?? unit.definitionId.toLowerCase();
     if (model === "placeholder") return { visual: this.fallback(unit) };
@@ -1162,7 +1164,6 @@ export class GameView {
       const visual = cloneSkinned(gltf.scene) as THREE.Group;
       visual.traverse((child) => {
         child.visible = true;
-        child.frustumCulled = false;
         const mesh = child as THREE.Mesh;
         if (mesh.isMesh && mesh.geometry) {
           const count = mesh.geometry.index?.count ?? mesh.geometry.attributes.position?.count ?? Infinity;
@@ -1170,7 +1171,7 @@ export class GameView {
           mesh.geometry.computeBoundingSphere();
         }
       });
-      this.tint(visual, unit.ownerId, unit.definitionId);
+      this.tint(visual, unit.ownerId, unit.definitionId, style);
       this.fit(visual, unit.definitionId);
       return { visual, gltf };
     } catch (err) {
@@ -1220,8 +1221,8 @@ export class GameView {
     return tex;
   }
 
-  private tint(root: THREE.Object3D, ownerId: number, pieceId?: string): void {
-    const style = this.styleOf(ownerId);
+  private tint(root: THREE.Object3D, ownerId: number, pieceId?: string, styleOverride?: PlayerStyle): void {
+    const style = styleOverride ?? this.styleOf(ownerId);
     const primary = new THREE.Color(style.primary);
     const secondary = new THREE.Color(style.secondary);
     const tiles = pieceId === "Lancer" ? 4 : 3;
@@ -1259,8 +1260,13 @@ export class GameView {
           cloned.map = null;
         } else if (cloned.color) {
           const field = base.color.clone().lerp(primary, 0.7);
-          cloned.color.set(0xffffff);
-          cloned.map = this.patternMap(style, field, tiles);
+          if (style.pattern === "none") {
+            cloned.color.copy(field);
+            cloned.map = null;
+          } else {
+            cloned.color.set(0xffffff);
+            cloned.map = this.patternMap(style, field, tiles);
+          }
         }
         return cloned;
       });
@@ -1832,6 +1838,25 @@ export class GameView {
 
   private wait(seconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  }
+
+  private fitShadowRig(width: number, height: number, layout: BoardLayout): void {
+    const z0 = layout === "hex-offset" ? -0.5 : 0;
+    const z1 = layout === "hex-offset" ? height - 0.5 : height;
+    const cx = width / 2;
+    const cz = (z0 + z1) / 2;
+    this.keyLight.position.set(cx + 7, 14, cz + 5);
+    this.keyLight.target.position.set(cx, 0, cz);
+    this.keyLight.target.updateMatrixWorld();
+    const extent = Math.max(width / 2 + 1.2, (z1 - z0) / 2 + 1.2, 5);
+    const cam = this.keyLight.shadow.camera;
+    cam.left = -extent;
+    cam.right = extent;
+    cam.top = extent;
+    cam.bottom = -extent;
+    cam.near = 2;
+    cam.far = 36;
+    cam.updateProjectionMatrix();
   }
 
   private resetCamera(width: number, height: number, localPlayerId: number, layout: BoardLayout = "square"): void {

@@ -2,11 +2,12 @@ import { DEFAULT_STYLE_P1, DEFAULT_STYLE_P2, normalizeStyle, type PlayerStyle } 
 import { BOARD_OPTIONS, boardSupportsFormat } from "../core/board";
 import { clampDecorAmount } from "../core/boardDecor";
 import { DRAFT_PICK_MODES, DRAFT_UNIQ_OPTIONS, clampBanCount, type DraftPickModeId, type DraftUniq } from "../core/draft";
-import { defaultBoardForFormat, formatOfArmyKind, type ArmyFormat, type MatchMode } from "../core/format";
+import { FORMAT_SIZE, defaultBoardForFormat, formatOfArmyKind, parseArmyFormat, pieceFitsRow, type ArmyFormat, type MatchMode } from "../core/format";
 import { rehydrateItem } from "../core/items";
 import { ARMIES, armyByKind, catalogPieces, type ArmyKind } from "../core/pieces";
 import type { ItemState, UnitState } from "../core/types";
 import type { SpawnSlot } from "../core/gameState";
+import { armyLabel, detectLocale, isLocale, t } from "../i18n";
 import {
   DEFAULT_SETTINGS,
   USER_STORE_KEY,
@@ -55,7 +56,7 @@ function copyArmyFromTemplate(kind: ArmyKind, name?: string): PersistedArmy {
   const def = armyByKind(kind);
   return {
     id: newId("army"),
-    name: name ?? def.label,
+    name: name ?? armyLabel(def.id),
     basedOn: def.id,
     isDefault: false,
     fillEmptyFront: def.fillEmptyFront,
@@ -129,7 +130,7 @@ function seedUser(): PersistedUser {
     pieces: [],
     activeArmyId,
     guestArmyId: activeArmyId,
-    settings: { ...DEFAULT_SETTINGS },
+    settings: { ...DEFAULT_SETTINGS, locale: detectLocale() },
   };
 }
 
@@ -162,7 +163,7 @@ function normalizeUser(raw: unknown): PersistedUser {
 function readSettings(raw: unknown): UserSettings {
   const o = raw && typeof raw === "object" ? (raw as Partial<UserSettings>) : {};
   const matchMode: MatchMode = o.matchMode === "draft" ? "draft" : "normal";
-  const armyFormat: ArmyFormat = o.armyFormat === "normal" ? "normal" : "mini";
+  const armyFormat: ArmyFormat = parseArmyFormat(o.armyFormat);
   const boardId = typeof o.board === "string" ? o.board : "";
   const board = BOARD_OPTIONS.some((option) => option.id === boardId) && boardSupportsFormat(boardId as UserSettings["board"], armyFormat)
     ? (boardId as UserSettings["board"])
@@ -174,6 +175,7 @@ function readSettings(raw: unknown): UserSettings {
     ? (o.draftUniqueness as DraftUniq)
     : "free";
   return {
+    locale: isLocale(o.locale) ? o.locale : detectLocale(),
     autoPickupItems: o.autoPickupItems === true,
     matchMode,
     armyFormat,
@@ -184,10 +186,11 @@ function readSettings(raw: unknown): UserSettings {
     itemAmount: clampDecorAmount(o.itemAmount ?? DEFAULT_SETTINGS.itemAmount),
     obstacleAmount: clampDecorAmount(o.obstacleAmount ?? DEFAULT_SETTINGS.obstacleAmount),
     symmetricObstacles: o.symmetricObstacles !== false,
+    timeControl: o.timeControl === "24h" ? "24h" : "5+3",
   };
 }
 
-function normalizeSettings(raw: unknown, storeVersion = USER_STORE_VERSION): UserSettings {
+function normalizeSettings(raw: unknown, storeVersion: number = USER_STORE_VERSION): UserSettings {
   const settings = readSettings(raw);
   if (storeVersion >= 4) return settings;
   return {
@@ -363,7 +366,7 @@ export function duplicateArmy(armyId: string): PersistedUser {
     const copy: PersistedArmy = {
       ...structuredClone(src),
       id: newId("army"),
-      name: `${src.name} (copy)`,
+      name: t("army.copyName", { name: src.isDefault ? armyLabel(src.basedOn) : src.name }),
       isDefault: false,
       slots: src.slots.map((slot) => ({ ...slot, pieceId: undefined })),
       fights: 0,
@@ -425,7 +428,7 @@ export function armyOptions(
     .map((army) => ({
       id: army.id,
       isDefault: army.isDefault,
-      label: army.fights > 0 ? `${army.name} · ${army.fights} game${army.fights === 1 ? "" : "s"}` : army.name,
+      label: displayArmyName(army),
     }));
 }
 
@@ -436,14 +439,21 @@ export function armyStats(army: PersistedArmy): { games: number; wins: number; d
   return { games, wins, draws, losses: Math.max(0, games - wins - draws) };
 }
 
+function displayArmyName(army: PersistedArmy): string {
+  const name = army.isDefault ? armyLabel(army.basedOn) : army.name;
+  return army.fights > 0 ? t("army.withGames", { name, n: army.fights }) : name;
+}
+
 export function armyRecord(army: PersistedArmy): string {
-  if (army.isDefault && army.fights <= 0) return "Default · anyone can pick this";
-  if (army.fights <= 0) return "No games yet — editable";
+  if (army.isDefault && army.fights <= 0) return t("army.recordDefault");
+  if (army.fights <= 0) return t("army.recordFresh");
   const { games, wins, draws, losses } = armyStats(army);
-  const bits = [`${games} game${games === 1 ? "" : "s"}`, `${wins} win${wins === 1 ? "" : "s"}`];
-  if (draws) bits.push(`${draws} draw${draws === 1 ? "" : "s"}`);
-  if (losses > 0) bits.push(`${losses} loss${losses === 1 ? "" : "es"}`);
-  return bits.join(" · ");
+  return t("army.recordLine", {
+    games: games === 1 ? t("army.games1") : t("army.gamesN", { n: games }),
+    wins: wins === 1 ? t("army.wins1") : t("army.winsN", { n: wins }),
+    draws: draws === 0 ? "" : draws === 1 ? t("army.draws1") : t("army.drawsN", { n: draws }),
+    losses: losses === 0 ? "" : losses === 1 ? t("army.losses1") : t("army.lossesN", { n: losses }),
+  });
 }
 
 export function canEditArmy(army: PersistedArmy): boolean {
@@ -468,8 +478,8 @@ export function setArmySlot(
   row: "back" | "front",
   x: number,
   definitionId: string | null
-): { user: PersistedUser; error?: "locked" | "no-king" | "unknown-piece" } {
-  let error: "locked" | "no-king" | "unknown-piece" | undefined;
+): { user: PersistedUser; error?: "locked" | "no-king" | "unknown-piece" | "wrong-row" } {
+  let error: "locked" | "no-king" | "unknown-piece" | "wrong-row" | undefined;
   if (definitionId && !catalogPieces().some((p) => p.id === definitionId)) {
     return { user: loadUser(), error: "unknown-piece" };
   }
@@ -477,6 +487,15 @@ export function setArmySlot(
     const army = next.armies.find((a) => a.id === armyId);
     if (!army || !canEditArmy(army)) {
       error = "locked";
+      return;
+    }
+    const width = FORMAT_SIZE[formatOfArmyKind(army.basedOn)][row];
+    if (x < 0 || x >= width) {
+      error = "wrong-row";
+      return;
+    }
+    if (definitionId && !pieceFitsRow(definitionId, row)) {
+      error = "wrong-row";
       return;
     }
     const slots = army.slots.filter((s) => !(s.row === row && s.x === x));

@@ -1,3 +1,4 @@
+import { afterTurn, createClock, flaggedPlayer, startClock, stopClock, type PublicClock, type TimeControlId } from "./clock";
 import { Board, createBoardByKind, definitionFromPublic } from "./board";
 import { applyBoardDecor, normalizeDecorAmounts } from "./boardDecor";
 import { normalizeStyles, type PlayerStyle } from "./colors";
@@ -104,6 +105,7 @@ export interface GameSettings {
   obstacleAmount?: number;
   symmetricObstacles?: boolean;
   seed?: number;
+  timeControl?: TimeControlId;
 }
 
 export function explosionNodes(board: Board, origin: number): number[] {
@@ -156,16 +158,16 @@ export function previewNodesForAction(
 
 export function actionNotice(action: ActionExecution): string | undefined {
   if (!action.success) return action.error;
-  if (action.gameEnded) return action.endReason;
-  if (action.actionId === "EscapeScroll") return "Returned to the starting square";
-  if (action.actionId === "TransmuteScroll") return "The square turned to stone";
-  if (action.actionId === "SwapCharm") return "Swapped places";
-  if (action.actionId === "EnterShadow") return "Vanished into shadow";
+  if (action.gameEnded) return `end.${action.endReason}`;
+  if (action.actionId === "EscapeScroll") return "notice.escapeHome";
+  if (action.actionId === "TransmuteScroll") return "notice.transmute";
+  if (action.actionId === "SwapCharm") return "notice.swap";
+  if (action.actionId === "EnterShadow") return "notice.enterShadow";
   if (action.actionId === "Stab") {
-    if (action.captureBlocked) return "The force field killed the assassin";
-    return "Stabbed";
+    if (action.captureBlocked) return "notice.stabBlocked";
+    return "notice.stabbed";
   }
-  if (action.actionId === "Bomb") return "Explosion";
+  if (action.actionId === "Bomb") return "notice.explosion";
   return undefined;
 }
 
@@ -189,6 +191,7 @@ export class Game {
   winnerId: number | null = null;
   endReason = GameEndReason.None;
   autoPickupItems = false;
+  clock: PublicClock | null = null;
   private nextUnitId = 0;
 
   constructor(
@@ -219,6 +222,20 @@ export class Game {
             this.board.def.itemSpawnTiles
           );
     this.phase = GamePhase.Playing;
+    this.clock = createClock(settings?.timeControl);
+  }
+
+  startClock(now = Date.now()): void {
+    if (!this.clock || this.phase !== GamePhase.Playing) return;
+    startClock(this.clock, this.currentPlayerId, now);
+  }
+
+  applyFlag(now = Date.now()): boolean {
+    if (!this.clock || this.phase !== GamePhase.Playing) return false;
+    const loser = flaggedPlayer(this.clock, now);
+    if (loser == null) return false;
+    this.endGame(loser === 0 ? 1 : 0, GameEndReason.Timeout);
+    return true;
   }
 
   replaceArmy(playerId: number, army: Slot[] | ArmyDef | ArmySpec): void {
@@ -240,7 +257,8 @@ export class Game {
     game.winnerId = state.winnerId;
     game.endReason = state.endReason;
     game.autoPickupItems = state.autoPickupItems === true;
-    game.nextUnitId = 0;
+    game.clock = state.clock ? structuredClone(state.clock) : null;
+    game.nextUnitId = game.units.reduce((max, unit) => Math.max(max, unit.unitId + 1), 0);
     return game;
   }
 
@@ -263,6 +281,7 @@ export class Game {
       items: structuredClone(this.items),
       playerColors: [{ ...this.playerColors[0] }, { ...this.playerColors[1] }],
       autoPickupItems: this.autoPickupItems,
+      clock: this.clock ? structuredClone(this.clock) : null,
     };
   }
 
@@ -361,13 +380,13 @@ export class Game {
   }
 
   tryMove(unitId: number, targetNode: number, playerId: number): MoveExecution {
-    if (playerId !== this.currentPlayerId) return this.failMove("Not your turn");
-    if (this.phase !== GamePhase.Playing) return this.failMove("Game is not playing");
+    const blocked = this.turnError(playerId);
+    if (blocked) return this.failMove(blocked);
     const unit = this.units.find((u) => u.unitId === unitId);
-    if (!unit) return this.failMove("Unit not found");
+    if (!unit) return this.failMove("err.unitNotFound");
 
     const validation = validateMove(this.board, unit, targetNode, this.units, playerId);
-    if (!validation.isValid) return this.failMove(validation.error ?? "Invalid move");
+    if (!validation.isValid) return this.failMove(validation.error ?? "err.invalidMove");
 
     const fromNode = unit.currentNodeId;
     let captureBlocked = false;
@@ -383,7 +402,7 @@ export class Game {
 
     if (validation.isPush && validation.pushedUnitId != null) {
       const victim = this.units.find((u) => u.unitId === validation.pushedUnitId);
-      if (!victim) return this.failMove("Nothing to push");
+      if (!victim) return this.failMove("err.nothingToPush");
       const dest = validation.pushToNode ?? victim.currentNodeId;
       if (validation.pushFalls) {
         const loot = this.killUnit(victim);
@@ -486,16 +505,16 @@ export class Game {
   }
 
   tryPickup(unitId: number, playerId: number): PickupExecution {
-    if (playerId !== this.currentPlayerId) return this.failPickup("Not your turn");
-    if (this.phase !== GamePhase.Playing) return this.failPickup("Game is not playing");
+    const blocked = this.turnError(playerId);
+    if (blocked) return this.failPickup(blocked);
     const unit = this.units.find((u) => u.unitId === unitId);
-    if (!unit) return this.failPickup("Unit not found");
-    if (unit.ownerId !== playerId) return this.failPickup("Not your unit");
-    if (unit.inShadow) return this.failPickup("Hidden pieces cannot pick up items");
-    if (unit.hasMovedThisTurn) return this.failPickup("Unit has already acted this turn");
-    if (unit.heldItem) return this.failPickup("Unit already holds an item");
+    if (!unit) return this.failPickup("err.unitNotFound");
+    if (unit.ownerId !== playerId) return this.failPickup("err.notYourUnit");
+    if (unit.inShadow) return this.failPickup("err.hiddenNoPickup");
+    if (unit.hasMovedThisTurn) return this.failPickup("err.alreadyActed");
+    if (unit.heldItem) return this.failPickup("err.alreadyHoldsItem");
     const item = this.items.find((i) => i.nodeId === unit.currentNodeId);
-    if (!item) return this.failPickup("No item at this position");
+    if (!item) return this.failPickup("err.noItemHere");
 
     this.giveItem(unit, item);
 
@@ -513,17 +532,17 @@ export class Game {
   }
 
   tryDrop(unitId: number, playerId: number): DropExecution {
-    if (playerId !== this.currentPlayerId) return this.failDrop("Not your turn");
-    if (this.phase !== GamePhase.Playing) return this.failDrop("Game is not playing");
+    const blocked = this.turnError(playerId);
+    if (blocked) return this.failDrop(blocked);
     const unit = this.units.find((u) => u.unitId === unitId);
-    if (!unit) return this.failDrop("Unit not found");
-    if (unit.ownerId !== playerId) return this.failDrop("Not your unit");
-    if (!unit.isAlive) return this.failDrop("Unit is dead");
-    if (unit.inShadow) return this.failDrop("Hidden pieces cannot drop items");
+    if (!unit) return this.failDrop("err.unitNotFound");
+    if (unit.ownerId !== playerId) return this.failDrop("err.notYourUnit");
+    if (!unit.isAlive) return this.failDrop("err.unitDead");
+    if (unit.inShadow) return this.failDrop("err.hiddenNoDrop");
     const item = unit.heldItem;
-    if (!item) return this.failDrop("Unit is not holding an item");
+    if (!item) return this.failDrop("err.notHolding");
     if (this.items.some((ground) => ground.nodeId === unit.currentNodeId)) {
-      return this.failDrop("There's already an item here");
+      return this.failDrop("err.itemAlreadyHere");
     }
 
     applyItemDrop(unit, item);
@@ -542,26 +561,26 @@ export class Game {
   }
 
   tryAction(unitId: number, actionId: string, playerId: number, targetNode?: number): ActionExecution {
-    if (playerId !== this.currentPlayerId) return this.failAction("Not your turn");
-    if (this.phase !== GamePhase.Playing) return this.failAction("Game is not playing");
+    const blocked = this.turnError(playerId);
+    if (blocked) return this.failAction(blocked);
     const unit = this.units.find((u) => u.unitId === unitId);
-    if (!unit) return this.failAction("Unit not found");
-    if (unit.ownerId !== playerId) return this.failAction("Not your unit");
-    if (!unit.isAlive) return this.failAction("Unit is dead");
+    if (!unit) return this.failAction("err.unitNotFound");
+    if (unit.ownerId !== playerId) return this.failAction("err.notYourUnit");
+    if (!unit.isAlive) return this.failAction("err.unitDead");
     const action = unit.actions.find((a) => a.id === actionId);
-    if (!action) return this.failAction("Unknown action");
-    if (!action.free && unit.hasMovedThisTurn) return this.failAction("Unit has already acted this turn");
+    if (!action) return this.failAction("err.unknownAction");
+    if (!action.free && unit.hasMovedThisTurn) return this.failAction("err.alreadyActed");
     if (!actionReady(action)) {
-      return this.failAction(action.cooldown === -1 ? "That ability is locked" : "That ability is on cooldown");
+      return this.failAction(action.cooldown === -1 ? "err.abilityLocked" : "err.abilityCooldown");
     }
     if (actionId === "EnterShadow") return this.useEnterShadow(unit, action);
     if (actionId === "Stab") return this.useStab(unit, action);
     if (actionId === "EscapeScroll") return this.useEscapeScroll(unit);
     if (actionId === "TransmuteScroll") return this.useTransmuteScroll(unit, targetNode);
     if (actionId === "SwapCharm") return this.useSwapCharm(unit, targetNode);
-    if (actionId !== "Bomb") return this.failAction("Unknown action");
+    if (actionId !== "Bomb") return this.failAction("err.unknownAction");
     const item = unit.heldItem;
-    if (item?.kind !== "Bomb") return this.failAction("No bomb to ignite");
+    if (item?.kind !== "Bomb") return this.failAction("err.noBomb");
 
     applyItemDrop(unit, item);
     unit.heldItem = null;
@@ -592,9 +611,9 @@ export class Game {
   }
 
   private useEnterShadow(unit: UnitState, action: UnitAction): ActionExecution {
-    if (unit.inShadow) return this.failAction("Already hidden");
+    if (unit.inShadow) return this.failAction("err.alreadyHidden");
     if (hasOwnShadow(this.units, unit.currentNodeId, unit.ownerId, unit.unitId)) {
-      return this.failAction("A hidden piece of yours is already there");
+      return this.failAction("err.ownShadowThere");
     }
     unit.inShadow = true;
     applyCooldownTriggers(unit, action);
@@ -622,9 +641,9 @@ export class Game {
   }
 
   private useStab(unit: UnitState, action: UnitAction): ActionExecution {
-    if (!unit.inShadow) return this.failAction("Must be hidden");
+    if (!unit.inShadow) return this.failAction("err.mustBeHidden");
     const target = principalOn(this.units, unit.currentNodeId);
-    if (!target || target.ownerId === unit.ownerId) return this.failAction("No enemy here");
+    if (!target || target.ownerId === unit.ownerId) return this.failAction("err.noEnemyHere");
     const origin = unit.currentNodeId;
     const field = target.skills.find((s) => s.id === "Forcefield" && s.isActive);
     if (field) {
@@ -698,17 +717,17 @@ export class Game {
 
   private useTransmuteScroll(unit: UnitState, targetNode?: number): ActionExecution {
     const item = unit.heldItem;
-    if (item?.kind !== "TransmuteScroll") return this.failAction("No transmutation scroll");
-    if (itemIsSpent(item)) return this.failAction("No uses left");
-    if (targetNode == null) return this.failAction("Choose an empty square this piece can attack");
+    if (item?.kind !== "TransmuteScroll") return this.failAction("err.noTransmuteScroll");
+    if (itemIsSpent(item)) return this.failAction("err.noUsesLeft");
+    if (targetNode == null) return this.failAction("err.chooseEmptyAttack");
     if (!transmutationTargets(this.board, unit, this.units).includes(targetNode)) {
-      return this.failAction("That square is not an empty attack target");
+      return this.failAction("err.notEmptyAttack");
     }
     if (!this.board.changeType(targetNode, NodeType.Impassable)) {
-      return this.failAction("Cannot transmute that square");
+      return this.failAction("err.cannotTransmute");
     }
 
-    if (!spendItemUse(item)) return this.failAction("No uses left");
+    if (!spendItemUse(item)) return this.failAction("err.noUsesLeft");
     const crushed: number[] = [];
     for (const shadow of this.units.filter((u) => u.isAlive && u.inShadow && u.currentNodeId === targetNode)) {
       this.killUnit(shadow);
@@ -742,17 +761,17 @@ export class Game {
 
   private useSwapCharm(unit: UnitState, targetNode?: number): ActionExecution {
     const item = unit.heldItem;
-    if (item?.kind !== "SwapCharm") return this.failAction("No swap charm");
-    if (itemIsSpent(item)) return this.failAction("No uses left");
-    if (targetNode == null) return this.failAction("Choose an adjacent piece");
+    if (item?.kind !== "SwapCharm") return this.failAction("err.noSwapCharm");
+    if (itemIsSpent(item)) return this.failAction("err.noUsesLeft");
+    if (targetNode == null) return this.failAction("err.chooseAdjacent");
     if (!this.board.areConnected(unit.currentNodeId, targetNode)) {
-      return this.failAction("That piece is not adjacent");
+      return this.failAction("err.notAdjacent");
     }
     const other = principalOn(this.units, targetNode);
-    if (!other) return this.failAction("No piece there");
-    if (other.unitId === unit.unitId) return this.failAction("Cannot swap with itself");
+    if (!other) return this.failAction("err.noPieceThere");
+    if (other.unitId === unit.unitId) return this.failAction("err.cannotSwapSelf");
 
-    if (!spendItemUse(item)) return this.failAction("No uses left");
+    if (!spendItemUse(item)) return this.failAction("err.noUsesLeft");
     const from = unit.currentNodeId;
     unit.currentNodeId = other.currentNodeId;
     other.currentNodeId = from;
@@ -785,19 +804,19 @@ export class Game {
 
   private useEscapeScroll(unit: UnitState): ActionExecution {
     const item = unit.heldItem;
-    if (item?.kind !== "EscapeScroll") return this.failAction("No escape scroll");
-    if (itemIsSpent(item)) return this.failAction("No uses left");
+    if (item?.kind !== "EscapeScroll") return this.failAction("err.noEscapeScroll");
+    if (itemIsSpent(item)) return this.failAction("err.noUsesLeft");
     const home = unit.homeNodeId;
-    if (home == null) return this.failAction("No starting square recorded");
-    if (home === unit.currentNodeId) return this.failAction("Already on the starting square");
-    if (!this.board.passable(home)) return this.failAction("The starting square is gone");
-    if (principalOn(this.units, home)) return this.failAction("The starting square is occupied");
+    if (home == null) return this.failAction("err.noHomeSquare");
+    if (home === unit.currentNodeId) return this.failAction("err.alreadyHome");
+    if (!this.board.passable(home)) return this.failAction("err.homeGone");
+    if (principalOn(this.units, home)) return this.failAction("err.homeOccupied");
     if (unit.inShadow && hasOwnShadow(this.units, home, unit.ownerId, unit.unitId)) {
-      return this.failAction("A hidden piece of yours is already there");
+      return this.failAction("err.ownShadowThere");
     }
 
     const from = unit.currentNodeId;
-    if (!spendItemUse(item)) return this.failAction("No uses left");
+    if (!spendItemUse(item)) return this.failAction("err.noUsesLeft");
     unit.currentNodeId = home;
     unit.hasMovedThisTurn = true;
     unit.hasEverMoved = true;
@@ -827,9 +846,7 @@ export class Game {
 
   resign(playerId: number): void {
     if (this.phase !== GamePhase.Playing) return;
-    this.winnerId = playerId === 0 ? 1 : 0;
-    this.endReason = GameEndReason.Resignation;
-    this.phase = GamePhase.Ended;
+    this.endGame(playerId === 0 ? 1 : 0, GameEndReason.Resignation);
   }
 
   private breakItem(item: ItemState, nodeId: number): {
@@ -933,32 +950,42 @@ export class Game {
         (u) => u.isAlive && u.ownerId === playerId && u.definitionId === "King"
       );
       if (!king) {
-        this.winnerId = playerId === 0 ? 1 : 0;
-        this.endReason = GameEndReason.KingCaptured;
-        this.phase = GamePhase.Ended;
+        this.endGame(playerId === 0 ? 1 : 0, GameEndReason.KingCaptured);
         return;
       }
       if (isCheckmate(this.board, playerId, this.units)) {
-        this.winnerId = playerId === 0 ? 1 : 0;
-        this.endReason = GameEndReason.Checkmate;
-        this.phase = GamePhase.Ended;
+        this.endGame(playerId === 0 ? 1 : 0, GameEndReason.Checkmate);
         return;
       }
     }
     if (isStalemate(this.board, this.currentPlayerId, this.units)) {
-      this.winnerId = null;
-      this.endReason = GameEndReason.Stalemate;
-      this.phase = GamePhase.Ended;
+      this.endGame(null, GameEndReason.Stalemate);
     }
   }
 
+  private endGame(winnerId: number | null, reason: GameEndReason): void {
+    this.winnerId = winnerId;
+    this.endReason = reason;
+    this.phase = GamePhase.Ended;
+    if (this.clock) stopClock(this.clock, Date.now());
+  }
+
+  private turnError(playerId: number): string | undefined {
+    if (this.applyFlag()) return "err.timeExpired";
+    if (playerId !== this.currentPlayerId) return "err.notYourTurn";
+    if (this.phase !== GamePhase.Playing) return "err.notPlaying";
+    return undefined;
+  }
+
   private endTurn(): void {
+    const previous = this.currentPlayerId;
     this.currentPlayerId = (this.currentPlayerId + 1) % 2;
     if (this.currentPlayerId === 0) this.turnNumber++;
     for (const unit of this.units.filter((u) => u.ownerId === this.currentPlayerId)) {
       unit.hasMovedThisTurn = false;
       tickUnitCooldowns(unit);
     }
+    if (this.clock) afterTurn(this.clock, previous, this.currentPlayerId, Date.now());
   }
 
   private failMove(error: string): MoveExecution {

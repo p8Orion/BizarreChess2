@@ -11,11 +11,13 @@
     "start": "concurrently -k \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
+    "sql.js": "^1.14.2",
     "three": "^0.170.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/sql.js": "^1.4.11",
     "@types/three": "^0.170.0",
     "@types/ws": "^8.5.13",
     "concurrently": "^9.1.2",

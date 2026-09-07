@@ -14,10 +14,11 @@ export const DEFAULT_STYLE_P2: PlayerStyle = {
   pattern: "dot",
 };
 
-export const PATTERN_IDS = ["fleur", "heart", "dot", "check", "diamond", "cross"] as const;
+export const PATTERN_IDS = ["none", "fleur", "heart", "dot", "check", "diamond", "cross"] as const;
 export type PatternId = (typeof PATTERN_IDS)[number];
 
 export const PATTERN_LABELS: Record<PatternId, string> = {
+  none: "No pattern",
   fleur: "Fleur-de-lis",
   heart: "Heart",
   dot: "Dot",
@@ -82,7 +83,8 @@ export function randomStyle(ownerId = 0): PlayerStyle {
   const hue = (ownerId * 160 + Math.random() * 80 + Math.random() * 360) % 360;
   const primary = hslHex(hue, 0.42 + Math.random() * 0.2, ownerId === 0 ? 0.62 : 0.28);
   const secondary = hslHex((hue + 130 + Math.random() * 50) % 360, 0.62, 0.48);
-  const pattern = PATTERN_IDS[Math.floor(Math.random() * PATTERN_IDS.length)];
+  const motifs = PATTERN_IDS.filter((id) => id !== "none");
+  const pattern = motifs[Math.floor(Math.random() * motifs.length)];
   return { primary, secondary, pattern };
 }
 

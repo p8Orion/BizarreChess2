@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { portraitWash } from "../core/colors";
 import type { ItemState, UnitState } from "../core/types";
+import { PORTRAIT_LIVE_DIST, addPortraitLights, portraitCameraDir } from "./portraitFrame";
 import { createCheckerGround } from "./portraitGround";
 
 export class PortraitView {
@@ -28,14 +29,7 @@ export class PortraitView {
     });
     this.setBackdrop();
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.scene.add(new THREE.AmbientLight(0xfff6ea, 0.78));
-    this.scene.add(new THREE.HemisphereLight(0xfff8ee, 0xcbb89a, 0.42));
-    const key = new THREE.DirectionalLight(0xfff1d6, 1.35);
-    key.position.set(1.2, 2.4, 3.4);
-    this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0xc9a15b, 0.35);
-    rim.position.set(-2.2, 1.4, -1.6);
-    this.scene.add(rim);
+    addPortraitLights(this.scene);
     this.scene.add(createCheckerGround());
     this.resize();
     window.addEventListener("resize", this.resize);
@@ -126,16 +120,9 @@ export class PortraitView {
     const size = box.getSize(new THREE.Vector3());
     const span = fullBox.isEmpty() ? size : fullBox.getSize(new THREE.Vector3());
     const radius = Math.max(span.x, span.y, span.z, size.x, size.y, size.z) * 0.5;
-    const dist = (radius / Math.tan((this.camera.fov * Math.PI) / 360)) * 1.78;
-    const yaw = THREE.MathUtils.degToRad(46);
-    const pitch = THREE.MathUtils.degToRad(22);
-    const dir = new THREE.Vector3(
-      Math.sin(yaw) * Math.cos(pitch),
-      Math.sin(pitch),
-      Math.cos(yaw) * Math.cos(pitch)
-    );
+    const dist = (radius / Math.tan((this.camera.fov * Math.PI) / 360)) * PORTRAIT_LIVE_DIST;
     this.look.set(box.min.x + size.x * 0.5, box.min.y + size.y * 0.42, box.min.z + size.z * 0.5);
-    this.camera.position.copy(this.look).addScaledVector(dir, dist);
+    this.camera.position.copy(this.look).addScaledVector(portraitCameraDir(), dist);
     this.camera.near = Math.max(0.04, dist - radius * 2.6);
     this.camera.far = dist + radius * 5;
     this.camera.lookAt(this.look);

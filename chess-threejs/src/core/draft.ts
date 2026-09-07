@@ -29,10 +29,11 @@ export const DRAFT_PICK_MODES: DraftPickMode[] = [
   },
 ];
 
-export type DraftUniq = "unique" | "unique-per-player" | "free";
+export type DraftUniq = "unique" | "unique-pieces" | "unique-per-player" | "free";
 
 export const DRAFT_UNIQ_OPTIONS: { id: DraftUniq; label: string }[] = [
   { id: "unique", label: "Unique" },
+  { id: "unique-pieces", label: "Unique pieces" },
   { id: "unique-per-player", label: "Unique per player" },
   { id: "free", label: "No restrictions" },
 ];
@@ -168,7 +169,7 @@ export class Draft {
   }
 
   beginFromWaiting(): { ok: boolean; error?: string } {
-    if (this.phase !== "waiting") return { ok: false, error: "Draft already started" };
+    if (this.phase !== "waiting") return { ok: false, error: "err.draftStarted" };
     this.phase = this.nextPhaseAfterWaiting();
     this.currentPlayerId = 0;
     if (this.phase === "pick") this.pickRow = pickModeDef(this.config.pickMode).firstRow;
@@ -190,9 +191,9 @@ export class Draft {
   }
 
   tryBan(playerId: number, definitionId: string): { ok: boolean; error?: string } {
-    if (this.phase !== "ban") return { ok: false, error: "Not banning now" };
-    if (playerId !== this.currentPlayerId) return { ok: false, error: "Not your turn" };
-    if (!this.canBan(definitionId)) return { ok: false, error: "Cannot ban that piece" };
+    if (this.phase !== "ban") return { ok: false, error: "err.notBanning" };
+    if (playerId !== this.currentPlayerId) return { ok: false, error: "err.notYourTurn" };
+    if (!this.canBan(definitionId)) return { ok: false, error: "err.cannotBan" };
     this.bans.push(definitionId);
     this.currentPlayerId = this.currentPlayerId === 0 ? 1 : 0;
     if (this.bans.length >= this.config.banCount * 2) {
@@ -204,9 +205,9 @@ export class Draft {
   }
 
   tryPick(playerId: number, definitionId: string): { ok: boolean; error?: string } {
-    if (this.phase !== "pick" || this.pickRow == null) return { ok: false, error: "Not picking now" };
-    if (playerId !== this.currentPlayerId) return { ok: false, error: "Not your turn" };
-    if (!this.canPick(playerId, definitionId)) return { ok: false, error: "Cannot pick that piece" };
+    if (this.phase !== "pick" || this.pickRow == null) return { ok: false, error: "err.notPicking" };
+    if (playerId !== this.currentPlayerId) return { ok: false, error: "err.notYourTurn" };
+    if (!this.canPick(playerId, definitionId)) return { ok: false, error: "err.cannotPick" };
     const row = this.pickRow;
     this.picks[playerId][row].push(definitionId);
     this.advanceAfterPick();
@@ -254,11 +255,9 @@ export class Draft {
       return false;
     }
     const uniq = this.config.uniqueness;
-    if (uniq === "unique") {
-      return countOf(pickedIds(this.picks[0]), definitionId) + countOf(pickedIds(this.picks[1]), definitionId) === 0;
-    }
+    if (uniq === "free" || (uniq === "unique-pieces" && isFrontPiece(definitionId))) return true;
     if (uniq === "unique-per-player") return countOf(pickedIds(picks), definitionId) === 0;
-    return true;
+    return countOf(pickedIds(this.picks[0]), definitionId) + countOf(pickedIds(this.picks[1]), definitionId) === 0;
   }
 
   private advanceAfterPick(): void {

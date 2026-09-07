@@ -96,15 +96,17 @@ export function createPatternMap(
 ): THREE.CanvasTexture {
   const ctx = canvas();
   fillField(ctx, field);
-  if (pattern === "check") check(ctx, motif);
-  else {
-    motifAt(ctx, motif, () => {
-      if (pattern === "fleur") fleur(ctx);
-      else if (pattern === "heart") heart(ctx);
-      else if (pattern === "diamond") diamond(ctx);
-      else if (pattern === "cross") cross(ctx);
-      else dot(ctx);
-    });
+  if (pattern !== "none") {
+    if (pattern === "check") check(ctx, motif);
+    else {
+      motifAt(ctx, motif, () => {
+        if (pattern === "fleur") fleur(ctx);
+        else if (pattern === "heart") heart(ctx);
+        else if (pattern === "diamond") diamond(ctx);
+        else if (pattern === "cross") cross(ctx);
+        else dot(ctx);
+      });
+    }
   }
   const tex = new THREE.CanvasTexture(ctx.canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

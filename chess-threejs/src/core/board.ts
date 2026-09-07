@@ -436,17 +436,17 @@ export function createBoardWithHoles(
 }
 
 export const BOARD_OPTIONS: { id: BoardKind; label: string; formats: ArmyFormat[] }[] = [
-  { id: "lane11", label: "Lane — 6×11 wide center", formats: ["mini"] },
-  { id: "lane12-terrain", label: "Lane — 6×12 pits & mountains", formats: ["mini"] },
-  { id: "lane10-terrain", label: "Lane — 6×10 pits & mountains", formats: ["mini"] },
-  { id: "bizarre", label: "Bizarre — 8×8 pits & walls", formats: ["normal", "mini"] },
-  { id: "classic", label: "Classic — 8×8 open", formats: ["normal", "mini"] },
-  { id: "lane10", label: "Lane — 6×10 mini", formats: ["mini"] },
-  { id: "lane", label: "Lane — 6×12 mini", formats: ["mini"] },
-  { id: "hexa", label: "Hexa — brick hex (3 colors)", formats: ["normal", "mini"] },
+  { id: "lane11", label: "Lane — 6×11 wide center", formats: ["midi", "mini"] },
+  { id: "lane12-terrain", label: "Lane — 6×12 pits & mountains", formats: ["midi", "mini"] },
+  { id: "lane10-terrain", label: "Lane — 6×10 pits & mountains", formats: ["midi", "mini"] },
+  { id: "bizarre", label: "Bizarre — 8×8 pits & walls", formats: ["normal", "midi", "mini"] },
+  { id: "classic", label: "Classic — 8×8 open", formats: ["normal", "midi", "mini"] },
+  { id: "lane10", label: "Lane — 6×10 mini", formats: ["midi", "mini"] },
+  { id: "lane", label: "Lane — 6×12 mini", formats: ["midi", "mini"] },
+  { id: "hexa", label: "Hexa — brick hex (3 colors)", formats: ["normal", "midi", "mini"] },
   { id: "grand", label: "Grand — 10×10", formats: ["normal"] },
   { id: "capablanca", label: "Capablanca — 10×8", formats: ["normal"] },
-  { id: "holes", label: "Holes — 8×8 irregular", formats: ["normal", "mini"] },
+  { id: "holes", label: "Holes — 8×8 irregular", formats: ["normal", "midi", "mini"] },
 ];
 
 export function boardsForFormat(format: ArmyFormat): typeof BOARD_OPTIONS {

@@ -34,6 +34,7 @@ export const PIECES: Record<string, UnitDefinition> = {
   King: def("King", {
     isKing: true,
     patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1 })],
+    skills: [{ id: "Forcefield", isActive: true }],
   }),
   Queen: def("Queen", {
     patterns: [
@@ -42,7 +43,6 @@ export const PIECES: Record<string, UnitDefinition> = {
     ],
   }),
   Grasshopper: def("Grasshopper", {
-    model: "placeholder",
     patterns: [...queenHurdleMove(), ...queenHurdleCapture()],
   }),
   Rook: def("Rook", {
@@ -61,15 +61,13 @@ export const PIECES: Record<string, UnitDefinition> = {
     patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, moveOnly: true })],
   }),
   Pusher: def("Pusher", {
-    model: "placeholder",
     patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, pushDistance: -1 })],
   }),
   Priest: def("Priest", {
-    model: "placeholder",
     patterns: [pattern({ type: MovementType.Adjacent, maxDistance: 1, moveOnly: true, converts: true })],
   }),
   Assassin: def("Assassin", {
-    model: "placeholder",
+    model: "assasin",
     patterns: [pattern({ type: MovementType.Diagonal, maxDistance: 2, moveOnly: true, passesUnits: true })],
     actions: [
       {
@@ -142,7 +140,18 @@ export const PIECES: Record<string, UnitDefinition> = {
 
 export type Slot = { piece: string; x: number; row: "back" | "front" };
 
-export type ArmyKind = "bizarre" | "classic" | "mini-classic" | "mini-court" | "mini-bizarre" | "mini-leap";
+export type ArmyKind =
+  | "bizarre"
+  | "classic"
+  | "midi-classic"
+  | "midi-court"
+  | "midi-bizarre"
+  | "midi-leap"
+  | "midi-intrigue"
+  | "mini-classic"
+  | "mini-court"
+  | "mini-bizarre"
+  | "mini-leap";
 
 export interface ArmyDef {
   id: ArmyKind;
@@ -185,16 +194,62 @@ export const BIZARRE_ARMY: Slot[] = [
   { piece: "Defender", x: 7, row: "front" },
 ];
 
-function miniArmy(...back: string[]): Slot[] {
+function sizedArmy(back: string[], front?: string[]): Slot[] {
+  const pawns = front ?? back.map(() => "Pawn");
   return [
     ...back.map((piece, x) => ({ piece, x, row: "back" as const })),
-    ...back.map((_, x) => ({ piece: "Pawn", x, row: "front" as const })),
+    ...pawns.map((piece, x) => ({ piece, x, row: "front" as const })),
   ];
+}
+
+function miniArmy(...back: string[]): Slot[] {
+  return sizedArmy(back);
 }
 
 export const ARMIES: ArmyDef[] = [
   { id: "bizarre", label: "Bizarre — full custom", format: "normal", slots: BIZARRE_ARMY, fillEmptyFront: true },
   { id: "classic", label: "Classic — 8 + 8", format: "normal", slots: CLASSIC_ARMY, fillEmptyFront: true },
+  {
+    id: "midi-classic",
+    label: "Midi Classic — R N B K Q R + 6 pawns",
+    format: "midi",
+    slots: sizedArmy(["Rook", "Knight", "Bishop", "King", "Queen", "Rook"]),
+    fillEmptyFront: false,
+  },
+  {
+    id: "midi-court",
+    label: "Midi Court — B Q K N R B + 6 pawns",
+    format: "midi",
+    slots: sizedArmy(["Bishop", "Queen", "King", "Knight", "Rook", "Bishop"]),
+    fillEmptyFront: false,
+  },
+  {
+    id: "midi-bizarre",
+    label: "Midi Bizarre — Cannon Crossbow King Grasshopper Camel Pusher + mixed front",
+    format: "midi",
+    slots: sizedArmy(
+      ["Cannon", "Crossbowman", "King", "Grasshopper", "Camel", "Pusher"],
+      ["Lancer", "Defender", "Bomber", "Pawn", "Pawn", "Lancer"]
+    ),
+    fillEmptyFront: false,
+  },
+  {
+    id: "midi-leap",
+    label: "Midi Leap — Knight Camel King Bishop Knight Camel + 6 pawns",
+    format: "midi",
+    slots: sizedArmy(["Knight", "Camel", "King", "Bishop", "Knight", "Camel"]),
+    fillEmptyFront: false,
+  },
+  {
+    id: "midi-intrigue",
+    label: "Midi Intrigue — Assassin Priest King Pusher Cannon Grasshopper",
+    format: "midi",
+    slots: sizedArmy(
+      ["Assassin", "Priest", "King", "Pusher", "Cannon", "Grasshopper"],
+      ["Defender", "Pawn", "Pawn", "Pawn", "Pawn", "Bomber"]
+    ),
+    fillEmptyFront: false,
+  },
   { id: "mini-classic", label: "Mini Classic — R N B K + 4 pawns", format: "mini", slots: miniArmy("Rook", "Knight", "Bishop", "King"), fillEmptyFront: false },
   { id: "mini-court", label: "Mini Court — B Q K N + 4 pawns", format: "mini", slots: miniArmy("Bishop", "Queen", "King", "Knight"), fillEmptyFront: false },
   {

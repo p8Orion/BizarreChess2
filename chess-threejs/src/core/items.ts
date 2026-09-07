@@ -19,7 +19,7 @@ type ItemSpec = {
 };
 
 /** One entry per item kind — not per power variant. */
-export const ITEMS = {
+const ITEM_DEFS = {
   Crossbow: {
     displayName: "Crossbow",
     description: "Grants a diagonal ranged shot up to 3 squares. Drops on death.",
@@ -68,16 +68,17 @@ export const ITEMS = {
   },
   SwapCharm: {
     displayName: "Swap Charm",
-    description: "1 use, free: swap places with an adjacent piece (friend or foe). Does not spend this turn.",
+    description: "2 uses, free: swap places with an adjacent piece (friend or foe). Does not spend this turn.",
     dropOnDeath: true,
     color: "#c45ec8",
     shape: "sphere",
     tier: 2,
-    maxUses: 1,
+    maxUses: 2,
   },
 } satisfies Record<string, ItemSpec>;
 
-export type ItemKind = keyof typeof ITEMS;
+export type ItemKind = keyof typeof ITEM_DEFS;
+export const ITEMS: Record<ItemKind, ItemSpec> = ITEM_DEFS;
 
 export function itemTier(kind: string): number {
   return ITEMS[kind as ItemKind]?.tier ?? 1;
@@ -141,10 +142,15 @@ export function createBomb(nodeId: number): ItemState {
   return spawnItem("Bomb", nodeId);
 }
 
-export function catalogStartingItem(definitionId: string): { displayName: string } | null {
-  if (definitionId === "Bomber") return { displayName: "Bomb" };
-  if (definitionId === "Crossbowman") return { displayName: "Crossbow" };
+export function startingItemKind(definitionId: string): ItemKind | null {
+  if (definitionId === "Bomber") return "Bomb";
+  if (definitionId === "Crossbowman") return "Crossbow";
   return null;
+}
+
+export function catalogStartingItem(definitionId: string): { displayName: string } | null {
+  const kind = startingItemKind(definitionId);
+  return kind ? { displayName: ITEMS[kind].displayName } : null;
 }
 
 export function startingHeldItem(definitionId: string): ItemState | null {

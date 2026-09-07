@@ -60,14 +60,14 @@ export function validateMove(
   all: UnitState[],
   currentPlayerId: number
 ): ValidationResult {
-  if (!unit.isAlive) return fail("Unit is dead");
-  if (unit.ownerId !== currentPlayerId) return fail("Not your unit");
-  if (unit.hasMovedThisTurn) return fail("Unit has already moved this turn");
-  if (!board.passable(targetNode)) return fail("Target node is not passable");
+  if (!unit.isAlive) return fail("err.unitDead");
+  if (unit.ownerId !== currentPlayerId) return fail("err.notYourUnit");
+  if (unit.hasMovedThisTurn) return fail("err.alreadyMoved");
+  if (!board.passable(targetNode)) return fail("err.notPassable");
 
   const categorized = movesForUnit(board, unit, all);
   const valid = allTargets(categorized);
-  if (!valid.includes(targetNode)) return fail("Invalid move for this unit type");
+  if (!valid.includes(targetNode)) return fail("err.invalidMove");
 
   const isRanged = categorized.rangedCapture.includes(targetNode);
   const isCaptureOnly = categorized.captureOnly.includes(targetNode);
@@ -75,11 +75,11 @@ export function validateMove(
   const occupant = principalOn(all, targetNode);
 
   if (unit.inShadow && hasOwnShadow(all, targetNode, unit.ownerId, unit.unitId)) {
-    return fail("A hidden piece of yours is already there");
+    return fail("err.ownShadowThere");
   }
 
   if (categorized.push.includes(targetNode)) {
-    if (!occupant) return fail("Nothing to push");
+    if (!occupant) return fail("err.nothingToPush");
     const outcome = resolvePush(
       board,
       unit.currentNodeId,
@@ -87,7 +87,7 @@ export function validateMove(
       pushDistanceOf(unit),
       (id) => all.some((other) => other.isAlive && !other.inShadow && other.currentNodeId === id)
     );
-    if (!outcome.vacated) return fail("That piece cannot be pushed");
+    if (!outcome.vacated) return fail("err.cannotPush");
     return {
       isValid: true,
       isCapture: false,
@@ -103,9 +103,9 @@ export function validateMove(
   }
 
   if (categorized.convert.includes(targetNode)) {
-    if (!occupant) return fail("Nothing to convert");
-    if (occupant.ownerId === currentPlayerId) return fail("Already yours");
-    if (occupant.definitionId === "King") return fail("Cannot convert a King");
+    if (!occupant) return fail("err.nothingToConvert");
+    if (occupant.ownerId === currentPlayerId) return fail("err.alreadyYours");
+    if (occupant.definitionId === "King") return fail("err.cannotConvertKing");
     return {
       isValid: true,
       isCapture: false,
@@ -135,7 +135,7 @@ export function validateMove(
         convertedUnitId: null,
       };
     }
-    if (occupant.ownerId === currentPlayerId) return fail("Cannot capture your own unit");
+    if (occupant.ownerId === currentPlayerId) return fail("err.cannotCaptureOwn");
     return {
       isValid: true,
       isCapture: true,
@@ -150,7 +150,7 @@ export function validateMove(
     };
   }
   if ((isCaptureOnly || isRanged) && !canMoveEmpty) {
-    return fail("Can only capture here, not move to empty square");
+    return fail("err.captureOnly");
   }
   return {
     isValid: true,

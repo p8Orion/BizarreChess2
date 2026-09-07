@@ -1,13 +1,16 @@
+import type { TimeControlId } from "../core/clock";
 import type { PlayerStyle } from "../core/colors";
 import type { DraftPickModeId, DraftUniq } from "../core/draft";
 import type { ArmyFormat, MatchMode } from "../core/format";
 import type { ArmyKind } from "../core/pieces";
 import type { BoardKind, ItemState } from "../core/types";
+import type { Locale } from "../i18n";
 
 export const USER_STORE_KEY = "bizarre-chess.user.v1";
-export const USER_STORE_VERSION = 5 as const;
+export const USER_STORE_VERSION = 6 as const;
 
 export interface UserSettings {
+  locale: Locale;
   autoPickupItems: boolean;
   matchMode: MatchMode;
   armyFormat: ArmyFormat;
@@ -18,9 +21,11 @@ export interface UserSettings {
   itemAmount: number;
   obstacleAmount: number;
   symmetricObstacles: boolean;
+  timeControl: TimeControlId;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
+  locale: "es",
   autoPickupItems: false,
   matchMode: "normal",
   armyFormat: "mini",
@@ -31,6 +36,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   itemAmount: 5,
   obstacleAmount: 5,
   symmetricObstacles: true,
+  timeControl: "5+3",
 };
 
 export interface PersistedItem {

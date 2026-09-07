@@ -5,6 +5,46 @@ Registro vivo de incidentes y soluciones de **este proyecto**.
 
 ---
 
+## 2026-09-07 — Lobby Ready se apagaba al reabrir o reenviar el army
+
+**Síntoma:** Ready no quedaba pulsado. Al Leave/Reopen volvía a “picking”.
+**Contexto:** `pushSeatSetup()` manda roster en cada sync (host, resume, estilo).
+**Causa:** El server hacía `ready = false` si el seat-setup no traía `ready: true`.
+**Solución:** Solo des-ready si el roster cambió de verdad, o si mandan `ready: false`. El botón se pinta al toque y persiste en la sala.
+**Prevención:** Reenviar el mismo loadout no es “cambiar de army”.
+
+---
+
+## 2026-09-07 — Banderas de idioma invisibles en Windows
+
+**Síntoma:** No se ven las banderas AR/US del selector de idioma.
+**Contexto:** Win10. Los botones usaban emoji 🇦🇷 🇺🇸.
+**Causa:** Windows no dibuja banderas emoji (quedan “AR”/“US” o vacío). Encima `button { color: #1b150c }` las deja marrón sobre el menú oscuro.
+**Solución:** SVG de las banderas. CSS del switch después de las reglas globales de `button`.
+**Prevención:** No usar emoji de bandera para UI en Windows.
+
+---
+
+## 2026-09-07 — SQLite de partidas, aislado del resto del VPS
+
+**Síntoma:** Hay que persistir host/join sin tocar nginx ni los otros sitios.
+**Contexto:** Local Node 24 tiene `node:sqlite`; el VPS corre Node 20.20.2. El republicado ya sube `server/` a `/opt/chess-threejs`.
+**Causa:** `node:sqlite` no existe en Node 20. Un wipe de `/opt/chess-threejs` borraría el historial.
+**Solución:** `sql.js` escribe `/opt/chess-threejs/data/matches.sqlite` (local: `chess-threejs/data/`). No compila nativo. No tocar `/`, `/portfolio/`, `/plantas`.
+**Prevención:** No borrar `/opt/chess-threejs/data` al republicar. El script actual sí borra `server/` — por eso el `.sqlite` no vive ahí. No subir el archivo al repo. No usar `node:sqlite` hasta que el VPS sea Node 22+.
+
+---
+
+## 2026-09-07 — `npm run build` rompe por tipos opcionales
+
+**Síntoma:** `tsc --noEmit` falla en `ITEMS[kind].maxUses` / `.model` y en `normalizeSettings(..., rawVersion)`.
+**Contexto:** `ITEMS` usaba `satisfies Record<string, ItemSpec>`; `USER_STORE_VERSION` es `5 as const`.
+**Causa:** `satisfies` deja el union de literales (campos opcionales no comunes). El default `= USER_STORE_VERSION` tipa el param como `5`, y `rawVersion` es `0 | 5`.
+**Solución:** Exponer `ITEMS` como `Record<ItemKind, ItemSpec>`. Anotar `storeVersion: number`.
+**Prevención:** `satisfies` no unifica optionals. Default de un `as const` no acepta otros numbers.
+
+---
+
 ## 2026-09-07 — Priest: conversión se guardaba en el army
 
 **Síntoma:** Una pieza wololo quedaba en el roster para la partida siguiente.

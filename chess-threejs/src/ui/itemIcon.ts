@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { ItemState } from "../core/types";
+import { PORTRAIT_LIVE_DIST, addPortraitLights, portraitCameraDir } from "../render/portraitFrame";
 
 const SIZE = 72;
 const cache = new Map<string, string>();
@@ -15,7 +16,7 @@ export function bindItemIconLoader(load: (item: ItemState) => Promise<THREE.Grou
 }
 
 function iconKey(item: ItemState): string {
-  return `q3:${item.kind}:${item.model ?? item.shape}:${item.color}`;
+  return `q4:${item.kind}:${item.model ?? item.shape}:${item.color}`;
 }
 
 function ensureRenderer(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera } {
@@ -28,11 +29,7 @@ function ensureRenderer(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; 
   renderer.setClearColor(0xfaf3e6, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xfff6ea, 0.78));
-  scene.add(new THREE.HemisphereLight(0xfff8ee, 0xcbb89a, 0.42));
-  const key = new THREE.DirectionalLight(0xfff1d6, 1.35);
-  key.position.set(1.2, 2.4, 3.4);
-  scene.add(key);
+  addPortraitLights(scene);
   camera = new THREE.PerspectiveCamera(34, 1, 0.08, 20);
   return { renderer, scene, camera };
 }
@@ -74,15 +71,8 @@ async function snapshot(item: ItemState): Promise<string> {
       const center = box.getCenter(new THREE.Vector3());
       const radius = Math.max(size.x, size.y, size.z) * 0.5;
       const fov = (ctx.camera.fov * Math.PI) / 180;
-      const dist = (radius / Math.tan(fov / 2)) * 1.72;
-      const yaw = THREE.MathUtils.degToRad(46);
-      const pitch = THREE.MathUtils.degToRad(24);
-      const dir = new THREE.Vector3(
-        Math.sin(yaw) * Math.cos(pitch),
-        Math.sin(pitch),
-        Math.cos(yaw) * Math.cos(pitch)
-      );
-      ctx.camera.position.copy(center).addScaledVector(dir, dist);
+      const dist = (radius / Math.tan(fov / 2)) * PORTRAIT_LIVE_DIST;
+      ctx.camera.position.copy(center).addScaledVector(portraitCameraDir(), dist);
       ctx.camera.near = Math.max(0.04, dist - radius * 2.4);
       ctx.camera.far = dist + radius * 5;
       ctx.camera.lookAt(center.x, center.y + size.y * 0.02, center.z);

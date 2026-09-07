@@ -1,5 +1,7 @@
-import { catalogStartingItem } from "../core/items";
+import { FORMAT_SIZE, formatOfArmyKind, isFrontPiece } from "../core/format";
+import { startingItemKind } from "../core/items";
 import { catalogPieces } from "../core/pieces";
+import { actionLabel, itemName, pieceName, t } from "../i18n";
 import { activeArmy, armyRecord, armyStats, canDeleteArmy, canEditArmy } from "../persist/store";
 import type { PersistedPiece, PersistedSlot, PersistedUser } from "../persist/types";
 
@@ -22,39 +24,40 @@ function fillProps(el: HTMLElement, slot: PersistedSlot | undefined, pieces: Per
   el.replaceChildren();
   if (!slot) return;
   const def = catalogPieces().find((p) => p.id === slot.definitionId);
-  if (def?.isKing) appendTag(el, "King", "king");
-  if (def?.canPromote) appendTag(el, "Promotes");
+  if (def?.isKing) appendTag(el, t("editor.king"), "king");
+  if (def?.canPromote) appendTag(el, t("editor.promotes"));
   for (const skill of def?.skills ?? []) appendTag(el, skill.id, "skill");
-  for (const action of def?.actions ?? []) appendTag(el, action.label || action.id);
+  for (const action of def?.actions ?? []) appendTag(el, actionLabel(action.id));
   const inst = slot.pieceId ? pieces.find((p) => p.id === slot.pieceId) : undefined;
-  if (inst?.item) appendTag(el, inst.item.displayName, "item");
+  if (inst?.item) appendTag(el, itemName(inst.item.kind), "item");
   else {
-    const innate = catalogStartingItem(slot.definitionId);
-    if (innate) appendTag(el, innate.displayName, "item");
-    else if (slot.pieceId) appendTag(el, "Veteran");
+    const innate = startingItemKind(slot.definitionId);
+    if (innate) appendTag(el, itemName(innate), "item");
+    else if (slot.pieceId) appendTag(el, t("editor.veteran"));
   }
 }
 
-function fillPieceSelect(select: HTMLSelectElement, current: string, locked: boolean): void {
+function fillPieceSelect(select: HTMLSelectElement, current: string, locked: boolean, row: "back" | "front"): void {
   select.replaceChildren();
   const empty = document.createElement("option");
   empty.value = "";
-  empty.textContent = "— empty —";
+  empty.textContent = t("editor.empty");
   select.append(empty);
-  for (const def of catalogPieces()) {
+  const pool = catalogPieces().filter((def) => (row === "front" ? isFrontPiece(def.id) : !isFrontPiece(def.id)));
+  for (const def of pool) {
     const opt = document.createElement("option");
     opt.value = def.id;
-    opt.textContent = def.displayName;
+    opt.textContent = pieceName(def.id);
     select.append(opt);
   }
-  select.value = current;
+  select.value = pool.some((def) => def.id === current) ? current : "";
   select.disabled = locked;
 }
 
 export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: ArmyEditorHooks): void {
   const army = activeArmy(user);
   const locked = !canEditArmy(army);
-  const width = Math.max(4, ...army.slots.map((s) => s.x + 1));
+  const size = FORMAT_SIZE[formatOfArmyKind(army.basedOn)];
 
   root.replaceChildren();
   root.hidden = false;
@@ -76,10 +79,10 @@ export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: 
   const statRow = document.createElement("div");
   statRow.className = "editor-stats";
   for (const [label, value] of [
-    ["Games", stats.games],
-    ["Wins", stats.wins],
-    ["Draws", stats.draws],
-    ["Losses", stats.losses],
+    [t("editor.games"), stats.games],
+    [t("editor.wins"), stats.wins],
+    [t("editor.draws"), stats.draws],
+    [t("editor.losses"), stats.losses],
   ] as const) {
     const cell = document.createElement("div");
     cell.className = "editor-stat";
@@ -97,8 +100,8 @@ export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: 
     const lock = document.createElement("p");
     lock.className = "editor-lock";
     lock.textContent = army.isDefault
-      ? "Default army — anyone can pick it. Copy it to make your own."
-      : "This army already fought. Copy it to edit a fresh roster.";
+      ? t("editor.lockDefault")
+      : t("editor.lockFought");
     root.append(lock);
   }
 
@@ -109,9 +112,10 @@ export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: 
     block.className = "editor-rank";
     const label = document.createElement("div");
     label.className = "editor-rank-label";
-    label.textContent = row === "back" ? "Back" : "Front";
+    label.textContent = row === "back" ? t("draft.pieces") : t("draft.pawns");
     const list = document.createElement("div");
     list.className = "editor-list";
+    const width = row === "back" ? size.back : size.front;
     for (let x = 0; x < width; x++) {
       const slot = army.slots.find((s) => s.row === row && s.x === x);
       const cell = document.createElement("label");
@@ -122,7 +126,7 @@ export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: 
       file.textContent = FILES[x] ?? String(x + 1);
       const select = document.createElement("select");
       select.setAttribute("aria-label", `${row} ${file.textContent}`);
-      fillPieceSelect(select, slot?.definitionId ?? "", locked);
+      fillPieceSelect(select, slot?.definitionId ?? "", locked, row);
       select.addEventListener("change", () => hooks.onSetSlot(row, x, select.value || null));
       const props = document.createElement("span");
       props.className = "editor-props";
@@ -140,13 +144,17 @@ export function renderArmyEditor(root: HTMLElement, user: PersistedUser, hooks: 
   del.className = "ghost editor-delete";
   const canDelete = canDeleteArmy(army, user.armies);
   del.disabled = !canDelete;
-  del.textContent = army.isDefault ? "Default armies can't be deleted" : canDelete ? "Delete army" : "Can't delete the last army";
+  del.textContent = army.isDefault
+    ? t("editor.deleteDefault")
+    : canDelete
+      ? t("editor.delete")
+      : t("editor.deleteLast");
   let pending = false;
   del.addEventListener("click", () => {
     if (!canDelete) return;
     if (!pending) {
       pending = true;
-      del.textContent = "Confirm delete";
+      del.textContent = t("editor.confirmDelete");
       del.classList.add("is-danger");
       return;
     }

@@ -1,3 +1,4 @@
+import type { PublicClock } from "./clock";
 import type { PlayerStyle } from "./colors";
 
 export enum NodeType {
@@ -33,6 +34,7 @@ export enum GameEndReason {
   KingCaptured = "KingCaptured",
   Stalemate = "Stalemate",
   Resignation = "Resignation",
+  Timeout = "Timeout",
 }
 
 export type Vec2 = { x: number; y: number };
@@ -328,4 +330,5 @@ export interface PublicState {
   items: ItemState[];
   playerColors: [PlayerStyle, PlayerStyle];
   autoPickupItems?: boolean;
+  clock?: PublicClock | null;
 }

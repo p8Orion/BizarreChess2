@@ -1,3 +1,4 @@
+export * from "./clock";
 export * from "./types";
 export * from "./hex";
 export * from "./board";

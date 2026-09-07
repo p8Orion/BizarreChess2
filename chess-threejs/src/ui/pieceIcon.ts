@@ -1,18 +1,20 @@
 import * as THREE from "three";
+import type { PlayerStyle } from "../core/colors";
 import { PIECES } from "../core/pieces";
 import type { UnitState } from "../core/types";
+import { PORTRAIT_ICON_DIST, addPortraitLights, portraitCameraDir } from "../render/portraitFrame";
 import { createCheckerGround } from "../render/portraitGround";
 
 const SIZE = 96;
 const cache = new Map<string, string>();
 const pending = new Map<string, Promise<string>>();
 
-let loadVisual: ((unit: UnitState) => Promise<THREE.Group>) | null = null;
+let loadVisual: ((unit: UnitState, style?: PlayerStyle) => Promise<THREE.Group>) | null = null;
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 
-export function bindPieceIconLoader(load: (unit: UnitState) => Promise<THREE.Group>): void {
+export function bindPieceIconLoader(load: (unit: UnitState, style?: PlayerStyle) => Promise<THREE.Group>): void {
   loadVisual = load;
 }
 
@@ -33,8 +35,9 @@ export function stubUnit(definitionId: string, ownerId: 0 | 1 = 0): UnitState {
   };
 }
 
-function iconKey(definitionId: string, ownerId: 0 | 1): string {
-  return `p5:${definitionId}:${ownerId}`;
+function iconKey(definitionId: string, ownerId: 0 | 1, style?: PlayerStyle): string {
+  const look = style ? `${style.primary}:${style.secondary}:${style.pattern}` : "";
+  return `p7:${definitionId}:${ownerId}:${look}`;
 }
 
 function ensureRenderer(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera } {
@@ -47,14 +50,7 @@ function ensureRenderer(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; 
   renderer.setClearColor(0x5a5854, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xfff6ea, 0.78));
-  scene.add(new THREE.HemisphereLight(0xfff8ee, 0xcbb89a, 0.42));
-  const key = new THREE.DirectionalLight(0xfff1d6, 1.35);
-  key.position.set(1.2, 2.4, 3.4);
-  scene.add(key);
-  const rim = new THREE.DirectionalLight(0xc9a15b, 0.35);
-  rim.position.set(-2.2, 1.4, -1.6);
-  scene.add(rim);
+  addPortraitLights(scene);
   scene.add(createCheckerGround());
   camera = new THREE.PerspectiveCamera(32, 1, 0.08, 20);
   return { renderer, scene, camera };
@@ -69,10 +65,10 @@ function disposeTree(root: THREE.Object3D): void {
   });
 }
 
-async function snapshot(definitionId: string, ownerId: 0 | 1): Promise<string> {
+async function snapshot(definitionId: string, ownerId: 0 | 1, style?: PlayerStyle): Promise<string> {
   if (!loadVisual) return "";
   try {
-    const visual = await loadVisual(stubUnit(definitionId, ownerId));
+    const visual = await loadVisual(stubUnit(definitionId, ownerId), style);
     const ctx = ensureRenderer();
     ctx.scene.add(visual);
     visual.updateWorldMatrix(true, true);
@@ -83,15 +79,8 @@ async function snapshot(definitionId: string, ownerId: 0 | 1): Promise<string> {
       const fov = (ctx.camera.fov * Math.PI) / 180;
       const halfY = size.y * 0.5;
       const halfX = Math.max(size.x, size.z) * 0.5;
-      const dist = (Math.max(halfY, halfX) / Math.tan(fov / 2)) * 1.08;
-      const yaw = THREE.MathUtils.degToRad(12);
-      const pitch = THREE.MathUtils.degToRad(8);
-      const dir = new THREE.Vector3(
-        Math.sin(yaw) * Math.cos(pitch),
-        Math.sin(pitch),
-        Math.cos(yaw) * Math.cos(pitch)
-      );
-      ctx.camera.position.copy(center).addScaledVector(dir, dist);
+      const dist = (Math.max(halfY, halfX) / Math.tan(fov / 2)) * PORTRAIT_ICON_DIST;
+      ctx.camera.position.copy(center).addScaledVector(portraitCameraDir(), dist);
       ctx.camera.near = Math.max(0.04, dist - Math.max(halfY, halfX) * 2.4);
       ctx.camera.far = dist + Math.max(halfY, halfX) * 5;
       ctx.camera.lookAt(center.x, center.y + size.y * 0.02, center.z);
@@ -107,13 +96,13 @@ async function snapshot(definitionId: string, ownerId: 0 | 1): Promise<string> {
   }
 }
 
-export function pieceIconUrl(definitionId: string, ownerId: 0 | 1 = 0): Promise<string> {
-  const key = iconKey(definitionId, ownerId);
+export function pieceIconUrl(definitionId: string, ownerId: 0 | 1 = 0, style?: PlayerStyle): Promise<string> {
+  const key = iconKey(definitionId, ownerId, style);
   const hit = cache.get(key);
   if (hit) return Promise.resolve(hit);
   const inflight = pending.get(key);
   if (inflight) return inflight;
-  const job = snapshot(definitionId, ownerId).then((url) => {
+  const job = snapshot(definitionId, ownerId, style).then((url) => {
     if (url) cache.set(key, url);
     pending.delete(key);
     return url;
